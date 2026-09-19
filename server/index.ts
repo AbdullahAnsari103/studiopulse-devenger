@@ -19,6 +19,8 @@ import calendarRouter from "./routes/calendar";
 import autopilotRouter from "./routes/autopilot";
 import audienceRouter from "./routes/audience";
 import webhooksRouter from "./routes/webhooks";
+import editorRouter from "./routes/editor";
+import viralClipsRouter from "./routes/viral-clips";
 import { runBudgetedAnalyticsPoll } from "./integrations/youtube-ingestion";
 import { providerManager } from "./ai/gemini";
 import { startAutopilotScheduler } from "./autopilot/scheduler";
@@ -58,9 +60,13 @@ app.use("/api/calendar", calendarRouter);
 app.use("/api/autopilot", autopilotRouter);
 app.use("/api/audience", audienceRouter);
 app.use("/api/webhooks", webhooksRouter);
+app.use("/api/editor", editorRouter);
+app.use("/api/viral-clips", viralClipsRouter);
 
-// Serve autopilot temp-frames as static files for thumbnail previews
+// Serve autopilot temp-frames and custom thumbnails as static files
 app.use("/api/autopilot/frames", express.static(path.resolve("server/uploads/temp-frames")));
+app.use("/api/autopilot/thumbnails", express.static(path.resolve("server/uploads/thumbnails")));
+app.use("/api/uploads", express.static(path.resolve("server/uploads")));
 
 // Test Gemini directly on /api/test-gemini
 app.get("/api/test-gemini", async (_req, res) => {
@@ -98,14 +104,14 @@ const FIFTEEN_MINS = 15 * 60 * 1000;
 // Start server
 async function start() {
   // 1. Bind port immediately so API routes & frontend requests are instantly available
-  const server = app.listen(PORT, () => {
-    console.log(`\n🚀 Studio Pulse API running on http://localhost:${PORT}`);
-    console.log(`   Health:    http://localhost:${PORT}/api/health`);
-    console.log(`   AI Health: http://localhost:${PORT}/api/ai/health`);
-    console.log(`   AI Chat:   http://localhost:${PORT}/api/ai/chat`);
-    console.log(`   Upload:    http://localhost:${PORT}/api/upload`);
-    console.log(`   Webhooks:  http://localhost:${PORT}/api/webhooks/youtube`);
-    console.log(`   Autopilot: http://localhost:${PORT}/api/autopilot\n`);
+  const server = app.listen(Number(PORT), "0.0.0.0", () => {
+    console.log(`\n🚀 Studio Pulse API running on http://127.0.0.1:${PORT}`);
+    console.log(`   Health:    http://127.0.0.1:${PORT}/api/health`);
+    console.log(`   AI Health: http://127.0.0.1:${PORT}/api/ai/health`);
+    console.log(`   AI Chat:   http://127.0.0.1:${PORT}/api/ai/chat`);
+    console.log(`   Upload:    http://127.0.0.1:${PORT}/api/upload`);
+    console.log(`   Webhooks:  http://127.0.0.1:${PORT}/api/webhooks/youtube`);
+    console.log(`   Autopilot: http://127.0.0.1:${PORT}/api/autopilot\n`);
   });
 
   // Increase server timeouts to support long-running video uploads to YouTube

@@ -227,10 +227,26 @@ export function useAutopilot() {
     }
   }, [userId, queryClient]);
 
-  // ─── Generate AI Metadata ───
+  // ─── Generate AI Metadata (Batch) ───
   const generateMetadataMutation = useMutation({
     mutationFn: async (batchId: string) => {
       const res = await apiClient.post(`${API_BASE}/api/autopilot/generate-metadata`, { userId, batchId });
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["autopilot-queue"] });
+      queryClient.invalidateQueries({ queryKey: ["autopilot-stats"] });
+      queryClient.invalidateQueries({ queryKey: ["autopilot-notifications"] });
+    },
+  });
+
+  // ─── Generate AI Metadata (Single Item) ───
+  const generateItemMetadataMutation = useMutation({
+    mutationFn: async ({ itemId, userContext }: { itemId: string; userContext?: string }) => {
+      const res = await apiClient.post(`${API_BASE}/api/autopilot/queue/${itemId}/generate-metadata`, {
+        userId,
+        userContext,
+      });
       return res.data;
     },
     onSuccess: () => {
@@ -399,6 +415,8 @@ export function useAutopilot() {
     bulkUpload,
     generateMetadata: generateMetadataMutation.mutateAsync,
     isGeneratingMetadata: generateMetadataMutation.isPending,
+    generateItemMetadata: generateItemMetadataMutation.mutateAsync,
+    isGeneratingItemMetadata: generateItemMetadataMutation.isPending,
     updateItem: updateItemMutation.mutateAsync,
     uploadThumbnail: uploadThumbnailMutation.mutateAsync,
     cancelItem: cancelItemMutation.mutateAsync,

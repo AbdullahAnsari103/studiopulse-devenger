@@ -92,7 +92,7 @@ const API_BASE = "http://localhost:3001/api/calendar";
 
 export function useCalendar() {
   const { user } = useUser();
-  const userId = user?.id || "user_3FBZdctjhqnHcPwlTCrcpCMARMk";
+  const userId = user?.id;
   const queryClient = useQueryClient();
 
   // 1. Fetch Calendar Summary Data
@@ -102,6 +102,7 @@ export function useCalendar() {
       const res = await axios.get(`${API_BASE}/summary`, { params: { userId } });
       return res.data;
     },
+    enabled: !!userId,
     staleTime: 10000,
     refetchInterval: 15000,
   });

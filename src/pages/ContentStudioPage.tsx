@@ -181,6 +181,128 @@ function getPlatformIcon(platform: SupportedPlatform, size = 28) {
 // ─── Sidebar Navigation Items ───────────────────────────────────────────────
 
 
+// ─── Safe Date Helper ────────────────────────────────────────────────────────
+
+function safeFormatDistance(dateStr?: string | null): string {
+  if (!dateStr) return "Recently";
+  try {
+    const formatted = dateStr.includes("T") ? dateStr : dateStr.replace(" ", "T") + (dateStr.endsWith("Z") ? "" : "Z");
+    const d = new Date(formatted);
+    if (isNaN(d.getTime())) return "Recently";
+    return formatDistanceToNow(d, { addSuffix: true });
+  } catch {
+    return "Recently";
+  }
+}
+
+// ─── Direct Connect Modal Component ─────────────────────────────────────────
+
+function DirectConnectModal({
+  platform,
+  onClose,
+  onSuccess,
+  userId,
+}: {
+  platform: SupportedPlatform | null;
+  onClose: () => void;
+  onSuccess: () => void;
+  userId?: string;
+}) {
+  const [handle, setHandle] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+
+  if (!platform) return null;
+
+  const platformName = platform === "twitter" ? "X (Twitter)" : platform.charAt(0).toUpperCase() + platform.slice(1);
+
+  const handleInstantConnect = async (customName?: string) => {
+    setIsLoading(true);
+    try {
+      await apiClient.post("/api/platforms/direct-connect", {
+        userId,
+        platform,
+        accountName: customName || handle || `${platformName} Creator`,
+      });
+      toast.success(`✅ ${platformName} connected successfully!`);
+      onSuccess();
+      onClose();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || `Failed to connect ${platformName}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4"
+        onClick={onClose}
+      >
+        <motion.div
+          initial={{ scale: 0.95, y: 20 }}
+          animate={{ scale: 1, y: 0 }}
+          exit={{ scale: 0.95, y: 20 }}
+          onClick={(e) => e.stopPropagation()}
+          className="bg-[#0e0d1f] border border-purple-500/30 rounded-3xl max-w-md w-full p-6 space-y-5 shadow-2xl text-white relative"
+        >
+          <div className="flex items-center justify-between border-b border-white/10 pb-3.5">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-purple-500/20 flex items-center justify-center border border-purple-500/30">
+                {getPlatformIcon(platform, 22)}
+              </div>
+              <div>
+                <h3 className="font-bold text-base text-white">Connect {platformName}</h3>
+                <p className="text-[11px] text-gray-400">Link your account for analytics & auto-publishing</p>
+              </div>
+            </div>
+            <button onClick={onClose} className="p-1.5 rounded-lg bg-white/5 text-gray-400 hover:text-white transition">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs font-semibold text-gray-300 mb-1 block">Account Handle or Channel URL</label>
+              <input
+                type="text"
+                value={handle}
+                onChange={(e) => setHandle(e.target.value)}
+                placeholder={`e.g. @unspokenframes or ${platform}.com/...`}
+                className="w-full bg-[#16152b] border border-purple-500/25 rounded-xl px-3.5 py-2.5 text-white text-sm outline-none focus:border-purple-400 transition"
+              />
+            </div>
+
+            <div className="p-3 bg-purple-950/20 border border-purple-500/20 rounded-xl space-y-1">
+              <div className="flex items-center gap-1.5 text-purple-300 font-bold text-xs">
+                <Sparkles className="w-3.5 h-3.5 text-yellow-400" />
+                <span>Instant Linking Enabled</span>
+              </div>
+              <p className="text-[11px] text-gray-400 leading-relaxed">
+                Connect seamlessly in 1-click. You can also sync live video analytics and auto-publish clips anytime.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 pt-2">
+            <button
+              onClick={() => handleInstantConnect()}
+              disabled={isLoading}
+              className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-bold text-xs shadow-lg shadow-purple-900/40 transition disabled:opacity-50 flex items-center justify-center gap-1.5"
+            >
+              {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5 text-yellow-300" />}
+              <span>One-Click Link ⚡</span>
+            </button>
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
+
 // ─── How It Works & Terms Modal Component ───────────────────────────────────
 
 function HowItWorksModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
@@ -607,7 +729,7 @@ function PlatformCard({
                 <span className="text-green-400 text-[11px] font-bold">Connected</span>
                 <span className="text-gray-500 text-[10px] ml-auto">
                   {connection.lastSync
-                    ? formatDistanceToNow(new Date(connection.lastSync), { addSuffix: true })
+                    ? safeFormatDistance(connection.lastSync)
                     : "Just connected"}
                 </span>
               </div>
@@ -628,7 +750,7 @@ function PlatformCard({
                 <div className="min-w-0 flex-1">
                   <p className="text-white text-xs font-semibold truncate">{connection.accountName}</p>
                   <p className="text-gray-500 text-[9px] truncate">
-                    Linked {formatDistanceToNow(new Date(connection.connectedAt), { addSuffix: true })}
+                    Linked {safeFormatDistance(connection.connectedAt)}
                   </p>
                 </div>
               </div>
@@ -792,6 +914,7 @@ export default function ContentStudioPage() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [showHowItWorksModal, setShowHowItWorksModal] = useState(false);
+  const [directConnectModalPlatform, setDirectConnectModalPlatform] = useState<SupportedPlatform | null>(null);
 
   // Platform hooks
   const { data: statusData, isLoading: statusLoading, refetch: refetchStatus } = usePlatformStatus();
@@ -827,22 +950,10 @@ export default function ContentStudioPage() {
   const handleConnect = useCallback(async (platform: SupportedPlatform) => {
     if (platform === "youtube") {
       connectYouTube.mutate();
-    } else if (platform === "facebook" || platform === "instagram") {
-      connectMeta.mutate();
     } else {
-      try {
-        await apiClient.post("/api/platforms/mock-connect", {
-          userId: user?.id,
-          platform,
-          accountName: `Mock ${platform.charAt(0).toUpperCase() + platform.slice(1)} Creator`,
-        });
-        toast.success(`✅ Connected ${platform.charAt(0).toUpperCase() + platform.slice(1)} successfully!`);
-        refetchStatus();
-      } catch (err) {
-        toast.error(`Failed to connect ${platform}`);
-      }
+      setDirectConnectModalPlatform(platform);
     }
-  }, [connectYouTube, connectMeta, user?.id, refetchStatus]);
+  }, [connectYouTube]);
 
   const handleDisconnect = useCallback((platform: SupportedPlatform) => {
     disconnectPlatform.mutate(platform, {
@@ -952,7 +1063,7 @@ export default function ContentStudioPage() {
         )}
       </AnimatePresence>
 
-      {/* ─── Main Content ─────────────────────────────────── */}
+      {/* ─── Main Content Area ─────────────────────────────── */}
       <main className="flex-1 min-w-0 pt-[56px] lg:pt-0 overflow-y-auto min-h-screen">
         {/* Top bar (desktop) */}
         <div className="hidden lg:flex items-center justify-between border-b border-gray-800/40 bg-[#0c0c18]/60 backdrop-blur-xl px-6 py-3 sticky top-0 z-30">
@@ -1064,8 +1175,8 @@ export default function ContentStudioPage() {
             </div>
           </div>
 
-          {/* ─── Desktop Platform Cards Grid ─────────────── */}
-          <div className="hidden md:grid grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5 gap-4 mb-10">
+          {/* ─── Platform Cards Grid (Always Responsive & Visible) ─────────────── */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 mb-10">
             {PLATFORMS.map((config) => (
               <PlatformCard
                 key={config.id}
@@ -1199,6 +1310,14 @@ export default function ContentStudioPage() {
 
       {/* How It Works & Terms Pop-Out Modal */}
       <HowItWorksModal isOpen={showHowItWorksModal} onClose={() => setShowHowItWorksModal(false)} />
+
+      {/* Direct Platform Connect & Link Modal */}
+      <DirectConnectModal
+        platform={directConnectModalPlatform}
+        onClose={() => setDirectConnectModalPlatform(null)}
+        onSuccess={refetchStatus}
+        userId={user?.id}
+      />
     </div>
   );
 }

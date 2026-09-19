@@ -178,6 +178,28 @@ export async function syncYouTubeData(userId: string) {
       }
     }
 
+    // Prune videos from database that were deleted on YouTube (preserve future scheduled items)
+    if (videoIds.length > 0) {
+      const placeholders = videoIds.map(() => "?").join(",");
+      await db.execute({
+        sql: `DELETE FROM youtube_videos WHERE user_id = ? AND status != 'scheduled' AND video_id NOT IN (${placeholders})`,
+        args: [userId, ...videoIds],
+      });
+      await db.execute({
+        sql: `DELETE FROM videos WHERE user_id = ? AND platform = 'youtube' AND video_id NOT IN (${placeholders})`,
+        args: [userId, ...videoIds],
+      });
+    } else {
+      await db.execute({
+        sql: `DELETE FROM youtube_videos WHERE user_id = ? AND status != 'scheduled'`,
+        args: [userId],
+      });
+      await db.execute({
+        sql: `DELETE FROM videos WHERE user_id = ? AND platform = 'youtube'`,
+        args: [userId],
+      });
+    }
+
     // Update last_sync timestamp on connected_platforms
     await db.execute({
       sql: "UPDATE connected_platforms SET last_sync = datetime('now') WHERE user_id = ? AND platform = 'youtube'",

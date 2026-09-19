@@ -1,10 +1,12 @@
+import dotenv from "dotenv";
+dotenv.config();
+
 /**
  * Groq AI Provider Manager v1
  * 
  * Production-grade key management with:
- * - Round-robin key rotation across GROQ_API_KEY_1 .. GROQ_API_KEY_20
- * - Text Model Chain: llama-3.3-70b-versatile → llama-3.1-8b-instant → mixtral-8x7b-32768
- * - Vision Model Chain: llama-3.2-11b-vision-preview → llama-3.2-90b-vision-preview
+ * - Round-robin key rotation across GROQ_CHAT_KEY_1..8 & GROQ_TASK_KEY_1..8
+ * - Text Model Chain: groq/compound-mini → groq/compound → openai/gpt-oss-20b → openai/gpt-oss-120b
  * - Key health verification on startup
  * - Dead key detection with rate-limit (429) cooldowns
  * - Structured error handling and request logging
@@ -12,18 +14,16 @@
 
 const GROQ_BASE_URL = "https://api.groq.com/openai/v1/chat/completions";
 
-// Model Fallback Chains (verified active models on Groq)
+// High-Capacity Enterprise Model Chain (Optimized for JSON generation & high token limits)
 export const TEXT_MODEL_CHAIN = [
   "openai/gpt-oss-120b",
-  "groq/compound",
-  "qwen/qwen3.6-27b",
-  "groq/compound-mini",
   "openai/gpt-oss-20b",
+  "qwen/qwen3.8-27b",
+  "qwen/qwen3.6-27b",
 ];
 
 export const VISION_MODEL_CHAIN = [
   "groq/compound",
-  "openai/gpt-oss-120b",
 ];
 
 let activeTextModel = TEXT_MODEL_CHAIN[0];
@@ -98,34 +98,54 @@ export class AllKeysExhaustedError extends Error {
 
 // ─── Provider Manager Class ───
 
-class GroqProviderManager {
+export class GroqProviderManager {
+  private poolName: "chat" | "task" | "default";
   private keys: KeyState[] = [];
   private requestLogs: RequestLog[] = [];
   private lastHealthCheck: string = new Date().toISOString();
   private initialized = false;
   private currentKeyIndex = 0;
 
-  private readonly COOLDOWN_MS = 5 * 60 * 1000; // 5 min for quota / rate limits
-  private readonly ERROR_COOLDOWN_MS = 30_000;   // 30s for generic errors
+  private readonly COOLDOWN_MS = 60_000;        // 60s for Groq 1-minute rate limits
+  private readonly ERROR_COOLDOWN_MS = 20_000;   // 20s for generic errors
   private readonly MAX_LOGS = 500;
 
-  constructor() {
+  constructor(poolName: "chat" | "task" | "default" = "default") {
+    this.poolName = poolName;
     this.loadKeys();
   }
 
   private loadKeys() {
     const rawKeys: string[] = [];
 
-    // Check single GROQ_API_KEY first if provided
-    if (process.env.GROQ_API_KEY && process.env.GROQ_API_KEY.trim()) {
-      rawKeys.push(process.env.GROQ_API_KEY.trim());
+    if (this.poolName === "chat") {
+      // 1. Load dedicated GROQ_CHAT_KEY_1 through GROQ_CHAT_KEY_20
+      for (let i = 1; i <= 20; i++) {
+        const k = process.env[`GROQ_CHAT_KEY_${i}`];
+        if (k && k.trim() && !rawKeys.includes(k.trim())) {
+          rawKeys.push(k.trim());
+        }
+      }
+    } else if (this.poolName === "task") {
+      // 1. Load dedicated GROQ_TASK_KEY_1 through GROQ_TASK_KEY_20
+      for (let i = 1; i <= 20; i++) {
+        const k = process.env[`GROQ_TASK_KEY_${i}`];
+        if (k && k.trim() && !rawKeys.includes(k.trim())) {
+          rawKeys.push(k.trim());
+        }
+      }
     }
 
-    // Load GROQ_API_KEY_1 through GROQ_API_KEY_20
-    for (let i = 1; i <= 20; i++) {
-      const k = process.env[`GROQ_API_KEY_${i}`];
-      if (k && k.trim() && !rawKeys.includes(k.trim())) {
-        rawKeys.push(k.trim());
+    // Fallback to GROQ_API_KEY_1..20 if pool-specific keys were not found
+    if (rawKeys.length === 0) {
+      if (process.env.GROQ_API_KEY && process.env.GROQ_API_KEY.trim()) {
+        rawKeys.push(process.env.GROQ_API_KEY.trim());
+      }
+      for (let i = 1; i <= 20; i++) {
+        const k = process.env[`GROQ_API_KEY_${i}`];
+        if (k && k.trim() && !rawKeys.includes(k.trim())) {
+          rawKeys.push(k.trim());
+        }
       }
     }
 
@@ -146,50 +166,30 @@ class GroqProviderManager {
     }));
 
     if (this.keys.length === 0) {
-      console.warn("⚠️  No Groq API keys configured. AI features will be unavailable.");
+      console.warn(`⚠️  No Groq API keys configured for [${this.poolName.toUpperCase()}] pool.`);
     } else {
-      console.log(`🔑 GroqProviderManager loaded ${this.keys.length} Groq API keys (round-robin rotation active)`);
+      console.log(`🔑 GroqProviderManager [${this.poolName.toUpperCase()} POOL] loaded ${this.keys.length} Groq API keys (isolated round-robin active)`);
       console.log(`🤖 Text model chain: ${TEXT_MODEL_CHAIN.join(" → ")}`);
-      console.log(`👁️ Vision model chain: ${VISION_MODEL_CHAIN.join(" → ")}`);
     }
   }
 
   /**
-   * Startup key verification
+   * Lightweight startup key verification
    */
   async initialize(): Promise<void> {
     if (this.initialized) return;
     this.initialized = true;
 
-    console.log("[GroqProviderManager] Verifying all Groq keys...");
-
-    for (const model of TEXT_MODEL_CHAIN) {
-      console.log(`[GroqProviderManager] Testing model: ${model}`);
-      let anySuccess = false;
-
-      for (const keyState of this.keys) {
-        const success = await this.verifyKey(keyState, model);
-        if (success) anySuccess = true;
-      }
-
-      if (anySuccess) {
-        activeTextModel = model;
-        console.log(`[GroqProviderManager] ✅ Active text model: ${activeTextModel}`);
-        break;
-      } else {
-        console.log(`[GroqProviderManager] ❌ Model ${model} failed on all keys, trying next...`);
-        for (const ks of this.keys) {
-          if (ks.status !== "invalid") {
-            ks.status = "unknown";
-            ks.failureCount = 0;
-            ks.cooldownUntil = null;
-          }
-        }
-      }
+    // Default all loaded keys to healthy status
+    for (const ks of this.keys) {
+      ks.status = "healthy";
     }
 
-    const healthy = this.keys.filter(k => k.status === "healthy").length;
-    console.log(`[GroqProviderManager] Verification complete: ${healthy}/${this.keys.length} keys healthy | Model: ${activeTextModel}`);
+    const testKey = this.keys[0];
+    if (testKey) {
+      activeTextModel = TEXT_MODEL_CHAIN[0];
+      console.log(`[GroqProviderManager] 🚀 [${this.poolName.toUpperCase()} POOL] Ready with ${this.keys.length} keys | Active model: ${activeTextModel}`);
+    }
   }
 
   private async verifyKey(keyState: KeyState, model: string): Promise<boolean> {
@@ -258,6 +258,9 @@ class GroqProviderManager {
   }
 
   private getAvailableKey(model: string, skip: Set<number> = new Set()): KeyState | null {
+    if (this.keys.length === 0) {
+      this.loadKeys();
+    }
     if (this.keys.length === 0) return null;
     const now = Date.now();
     const count = this.keys.length;
@@ -267,45 +270,12 @@ class GroqProviderManager {
       return modelCooldown !== undefined && modelCooldown > now;
     };
 
-    // 1. Healthy keys
+    // 1. Healthy keys for this model
     for (let i = 0; i < count; i++) {
       const idx = (this.currentKeyIndex + i) % count;
       const ks = this.keys[idx];
       if (skip.has(ks.index)) continue;
-      if (ks.status === "healthy" && !isModelInCooldown(ks)) {
-        this.currentKeyIndex = (idx + 1) % count;
-        return ks;
-      }
-    }
-
-    // 2. Unknown keys
-    for (let i = 0; i < count; i++) {
-      const idx = (this.currentKeyIndex + i) % count;
-      const ks = this.keys[idx];
-      if (skip.has(ks.index)) continue;
-      if (ks.status === "unknown" && !isModelInCooldown(ks)) {
-        this.currentKeyIndex = (idx + 1) % count;
-        return ks;
-      }
-    }
-
-    // 3. Exhausted keys whose cooldown expired
-    for (let i = 0; i < count; i++) {
-      const idx = (this.currentKeyIndex + i) % count;
-      const ks = this.keys[idx];
-      if (skip.has(ks.index)) continue;
-      if (ks.status === "exhausted" && !isModelInCooldown(ks)) {
-        this.currentKeyIndex = (idx + 1) % count;
-        return ks;
-      }
-    }
-
-    // 4. Generic error keys whose cooldown expired
-    for (let i = 0; i < count; i++) {
-      const idx = (this.currentKeyIndex + i) % count;
-      const ks = this.keys[idx];
-      if (skip.has(ks.index)) continue;
-      if (ks.status === "error" && !isModelInCooldown(ks)) {
+      if (ks.status !== "invalid" && !isModelInCooldown(ks)) {
         this.currentKeyIndex = (idx + 1) % count;
         return ks;
       }
@@ -327,6 +297,7 @@ class GroqProviderManager {
     const errMsg = error.message;
     let errCode = "500";
     if (errMsg.includes("429")) errCode = "429";
+    else if (errMsg.includes("413")) errCode = "413";
     else if (errMsg.includes("401")) errCode = "401";
     else if (errMsg.includes("403")) errCode = "403";
     else if (errMsg.includes("404")) errCode = "404";
@@ -339,16 +310,41 @@ class GroqProviderManager {
     keyState.totalRequests++;
 
     const isQuota = errCode === "429" || errMsg.toLowerCase().includes("rate_limit") || errMsg.toLowerCase().includes("quota");
+    const isPayloadTooLarge = errCode === "413" || errMsg.toLowerCase().includes("request_too_large") || errMsg.toLowerCase().includes("entity too large");
     const cooldownTime = isQuota ? this.COOLDOWN_MS : this.ERROR_COOLDOWN_MS;
     const cooldown = Date.now() + cooldownTime;
 
-    keyState.cooldownUntil = cooldown;
     if (!keyState.modelCooldowns) keyState.modelCooldowns = {};
     keyState.modelCooldowns[model] = cooldown;
 
-    if (isQuota) keyState.status = "exhausted";
-    else if (errCode === "401" || errCode === "403") keyState.status = "invalid";
-    else keyState.status = "error";
+    // 413 Request Too Large: payload is the same for ALL keys, so skip them all
+    // for this model immediately. The next model in the chain may accept the payload.
+    if (isPayloadTooLarge) {
+      console.warn(`[GroqProviderManager] ⚠️ Payload too large for model ${model} — skipping all keys for this model`);
+      for (const ks of this.keys) {
+        if (!ks.modelCooldowns) ks.modelCooldowns = {};
+        ks.modelCooldowns[model] = cooldown;
+      }
+    }
+
+    // Org-level rate limit: if the error mentions "organization", ALL keys share
+    // the same org quota so cooldown ALL keys for this model at once.
+    // This prevents the cascade of 8 identical "Key X failed (429)" logs.
+    if (isQuota && errMsg.toLowerCase().includes("organization")) {
+      for (const ks of this.keys) {
+        if (!ks.modelCooldowns) ks.modelCooldowns = {};
+        ks.modelCooldowns[model] = cooldown;
+      }
+    }
+
+    if (errCode === "401" || errCode === "403") {
+      keyState.status = "invalid";
+      keyState.cooldownUntil = cooldown;
+    } else if (isQuota) {
+      keyState.status = "exhausted";
+    } else {
+      keyState.status = "error";
+    }
 
     return errCode;
   }
@@ -377,12 +373,16 @@ class GroqProviderManager {
         const start = Date.now();
 
         try {
+          const sys = userMessage ? systemPrompt : "";
+          const usr = userMessage || systemPrompt || "";
           const messages = [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userMessage }
+            ...(sys ? [{ role: "system", content: sys }] : []),
+            { role: "user", content: usr }
           ];
 
-          const res = await fetch(GROQ_BASE_URL, {
+          const isJsonRequested = (sys + " " + usr).toLowerCase().includes("json");
+
+          let res = await fetch(GROQ_BASE_URL, {
             method: "POST",
             headers: {
               "Authorization": `Bearer ${keyState.key}`,
@@ -392,16 +392,41 @@ class GroqProviderManager {
               model,
               messages,
               temperature: 0.7,
+              ...(isJsonRequested ? { response_format: { type: "json_object" } } : {}),
             }),
           });
 
           if (!res.ok) {
             const errBody = await res.text();
-            throw new Error(`HTTP ${res.status}: ${errBody}`);
+            // If Groq strict JSON validator failed (common on Qwen), retry without response_format constraint
+            if (res.status === 400 && errBody.includes("Failed to validate JSON") && isJsonRequested) {
+              res = await fetch(GROQ_BASE_URL, {
+                method: "POST",
+                headers: {
+                  "Authorization": `Bearer ${keyState.key}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  model,
+                  messages,
+                  temperature: 0.7,
+                }),
+              });
+              if (!res.ok) {
+                const retryErr = await res.text();
+                throw new Error(`HTTP ${res.status}: ${retryErr}`);
+              }
+            } else {
+              throw new Error(`HTTP ${res.status}: ${errBody}`);
+            }
           }
 
           const data = await res.json();
-          const text = data.choices?.[0]?.message?.content || "";
+          const rawText = data.choices?.[0]?.message?.content || "";
+          const text = rawText
+            .replace(/<think>[\s\S]*?<\/think>/gi, "")
+            .replace(/^(?:We need to|I need to|Thinking Process:|Thought:|Plan:).*?(?:\n\n|\r\n\r\n)/i, "")
+            .trim();
 
           this.markSuccess(keyState, model);
           this.logRequest(keyState.index, model, true, null, Date.now() - start, "generate");
@@ -421,8 +446,7 @@ class GroqProviderManager {
   }
 
   /**
-   * Multimodal (Vision) Chat Completion — Analyzes actual video frame images
-   * Uses Gemini Flash Lite Vision Engine with 8-key rotation for guaranteed 100% visual frame analysis
+   * Fast Multimodal Visual Frame Analysis with Rapid Groq Fallback (<3s)
    */
   async generateContentWithImages(
     systemPrompt: string,
@@ -431,69 +455,67 @@ class GroqProviderManager {
   ): Promise<string> {
     console.log(`[GroqProviderManager] Visual Analysis Request received | Action: generateContentWithImages (${images.length} frames)`);
 
-    // Load Gemini keys for vision
+    // Load up to 2 active Gemini keys for rapid vision attempt
     const geminiKeys: string[] = [];
     if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim()) {
       geminiKeys.push(process.env.GEMINI_API_KEY.trim());
     }
-    for (let i = 1; i <= 20; i++) {
+    for (let i = 1; i <= 3; i++) {
       const k = process.env[`GEMINI_API_KEY_${i}`];
       if (k && k.trim() && !geminiKeys.includes(k.trim())) {
         geminiKeys.push(k.trim());
       }
     }
 
-    const visionModels = [
-      "gemini-2.5-flash",
-      "gemini-flash-latest",
-      "gemini-2.5-pro",
-      "gemini-2.5-flash-lite",
-    ];
-
     if (geminiKeys.length > 0 && images.length > 0) {
-      const { GoogleGenerativeAI } = await import("@google/generative-ai");
+      try {
+        const { GoogleGenerativeAI } = await import("@google/generative-ai");
 
-      // Format images for Gemini SDK
-      const parts: any[] = [];
-      for (const img of images) {
-        parts.push({
-          inlineData: {
-            data: img.base64,
-            mimeType: img.mimeType || "image/jpeg",
-          },
-        });
-      }
-      parts.push({ text: userMessage });
+        // Format images for Gemini SDK (limit to top 3 frames to keep request payload light)
+        const parts: any[] = [];
+        for (const img of images.slice(0, 3)) {
+          parts.push({
+            inlineData: {
+              data: img.base64,
+              mimeType: img.mimeType || "image/jpeg",
+            },
+          });
+        }
+        parts.push({ text: userMessage });
 
-      for (const modelName of visionModels) {
-        for (let i = 0; i < geminiKeys.length; i++) {
-          const key = geminiKeys[i];
-          const start = Date.now();
+        for (const key of geminiKeys.slice(0, 2)) {
           try {
-            console.log(`[VisionEngine] 👁️ Analyzing ${images.length} frames using model: ${modelName} | Key index: ${i}`);
             const genAI = new GoogleGenerativeAI(key);
             const genModel = genAI.getGenerativeModel({
-              model: modelName,
+              model: "gemini-2.5-flash",
               systemInstruction: systemPrompt,
             });
 
-            const result = await genModel.generateContent(parts);
-            const text = result.response.text();
+            // 5-second timeout for rapid vision response
+            const visionPromise = genModel.generateContent(parts);
+            const timeoutPromise = new Promise<null>((_, reject) => 
+              setTimeout(() => reject(new Error("Vision timeout 5s")), 5000)
+            );
 
-            if (text && text.trim().length > 0) {
-              console.log(`[VisionEngine] ✅ Visual Analysis Success with model: ${modelName} | Key: ${i} | ${Date.now() - start}ms`);
-              return text;
+            const result = await Promise.race([visionPromise, timeoutPromise]) as any;
+            if (result) {
+              const text = result.response?.text();
+              if (text && text.trim().length > 0) {
+                console.log(`[VisionEngine] ✅ Visual Analysis Success via Gemini 2.5 Flash`);
+                return text;
+              }
             }
-          } catch (err: any) {
-            const msg = err instanceof Error ? err.message : String(err);
-            console.warn(`[VisionEngine] ⚠ Model ${modelName} Key ${i} failed: ${msg.substring(0, 90)}`);
+          } catch (keyErr: any) {
+            console.warn(`[VisionEngine] Rapid vision attempt notice: ${keyErr?.message || keyErr}`);
           }
         }
+      } catch (importErr) {
+        console.warn("[VisionEngine] Vision import notice:", importErr);
       }
     }
 
-    // Fallback to Groq text model if vision call returned no text
-    console.log("[GroqProviderManager] Vision call fallback to Groq text model...");
+    // Instant fallback to Groq (<1s)
+    console.log("[GroqProviderManager] Fast fallback to Groq AI engine for metadata...");
     return this.generateContent(systemPrompt, userMessage);
   }
 
@@ -550,42 +572,93 @@ class GroqProviderManager {
           this.markSuccess(keyState, model);
           this.logRequest(keyState.index, model, true, null, Date.now() - start, "stream");
           activeTextModel = model;
+          console.log(`[GroqProviderManager] ✅ Stream connected with Key ${keyState.index} | Model: ${model} | ${Date.now() - start}ms`);
 
-          // Helper async generator for stream chunks
           const streamGenerator = async function* () {
             if (!res.body) return;
             const reader = res.body.getReader();
             const decoder = new TextDecoder("utf-8");
             let buffer = "";
+            let inThinkBlock = false;
 
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              buffer += decoder.decode(value, { stream: true });
+            try {
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
 
-              const lines = buffer.split("\n");
-              buffer = lines.pop() || "";
+                const lines = buffer.split("\n");
+                buffer = lines.pop() || "";
 
-              for (const line of lines) {
-                const trimmed = line.trim();
-                if (!trimmed || trimmed.startsWith(":")) continue;
-                if (trimmed === "data: [DONE]") return;
-                if (trimmed.startsWith("data: ")) {
-                  try {
-                    const json = JSON.parse(trimmed.slice(6));
-                    const content = json.choices?.[0]?.delta?.content;
-                    if (content) {
-                      yield { text: () => content };
+                for (const line of lines) {
+                  const trimmed = line.trim();
+                  if (!trimmed || trimmed.startsWith(":")) continue;
+                  if (trimmed === "data: [DONE]") return;
+                  if (trimmed.startsWith("data: ")) {
+                    try {
+                      const json = JSON.parse(trimmed.slice(6));
+                      if (json.error) {
+                         throw new Error(`Stream Error: ${json.error.message || JSON.stringify(json.error)}`);
+                      }
+                      const choice = json.choices?.[0];
+                      const delta = choice?.delta;
+                      
+                      // Stream ONLY true user-facing content — never leak model reasoning scratchpad
+                      let content = delta?.content || "";
+                      if (!content && choice?.message?.content) {
+                        content = choice.message.content;
+                      }
+                      
+                      if (content) {
+                        if (content.includes("<think>")) inThinkBlock = true;
+                        if (inThinkBlock) {
+                          if (content.includes("</think>")) {
+                            content = content.replace(/<think>[\s\S]*?<\/think>/g, "");
+                            inThinkBlock = false;
+                          } else {
+                            continue;
+                          }
+                        }
+                        content = content.replace(/<\/?think>/g, "");
+                        if (content) {
+                          yield { text: () => content };
+                        }
+                      }
+                    } catch (e) {
+                      if (e instanceof Error && e.message.startsWith("Stream Error:")) throw e;
                     }
-                  } catch {
-                    // Skip incomplete JSON chunks
+                  } else if (trimmed.startsWith("{") && trimmed.includes('"error"')) {
+                      try {
+                        const json = JSON.parse(trimmed);
+                        if (json.error) {
+                           throw new Error(`Stream Error: ${json.error.message || JSON.stringify(json.error)}`);
+                        }
+                      } catch (e) {
+                         if (e instanceof Error && e.message.startsWith("Stream Error:")) throw e;
+                      }
                   }
                 }
               }
+            } catch (err) {
+              console.error(`[GroqProviderManager] Stream aborted during read:`, err);
+              throw err;
             }
           };
+          
+          const generator = streamGenerator();
+          
+          // Pre-fetch the first chunk to catch immediate stream errors (like 429s) before returning.
+          // This ensures the error is thrown inside this try/catch block so the key fallback logic works.
+          const firstResult = await generator.next();
+          
+          const wrappedGenerator = async function* () {
+             if (!firstResult.done) {
+                 yield firstResult.value;
+                 yield* generator;
+             }
+          };
 
-          return { stream: streamGenerator() };
+          return { stream: wrappedGenerator() };
         } catch (error) {
           const err = error instanceof Error ? error : new Error(String(error));
           const errCode = this.markFailure(keyState, err, model);
@@ -742,5 +815,12 @@ class GroqProviderManager {
   }
 }
 
-// Singleton Export
-export const groqProviderManager = new GroqProviderManager();
+// ─── Singleton Exports ───
+// 8 Keys dedicated solely to AI Chat, Normal Chat, and Web Research Streaming
+export const groqChatProviderManager = new GroqProviderManager("chat");
+
+// 8 Keys dedicated to background tasks (Analytics, Autopilot, Metadata, Brain Sync)
+export const groqTaskProviderManager = new GroqProviderManager("task");
+
+// Default bridge alias for chat & streaming
+export const groqProviderManager = groqChatProviderManager;

@@ -134,6 +134,7 @@ export function useMyVideos() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["myVideosList"] });
       queryClient.invalidateQueries({ queryKey: ["myVideosSummary"] });
+      queryClient.invalidateQueries({ queryKey: ["viralClipsVideos"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
   });
@@ -156,6 +157,7 @@ export function useMyVideos() {
       setSelectedVideoIds([]);
       queryClient.invalidateQueries({ queryKey: ["myVideosList"] });
       queryClient.invalidateQueries({ queryKey: ["myVideosSummary"] });
+      queryClient.invalidateQueries({ queryKey: ["viralClipsVideos"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
   });

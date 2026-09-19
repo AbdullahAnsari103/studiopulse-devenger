@@ -12,6 +12,8 @@
 export interface ExtractedFrame {
   base64: string;
   mimeType: string;
+  timeSeconds?: number;
+  timestamp?: string;
 }
 
 /**
@@ -103,7 +105,16 @@ export async function extractVideoFrames(
                   const dataUrl = canvas.toDataURL("image/jpeg", quality);
                   const base64 = dataUrl.split(",")[1];
                   if (base64) {
-                    frames.push({ base64, mimeType: "image/jpeg" });
+                    const sec = Math.round(seekTime);
+                    const min = Math.floor(sec / 60);
+                    const remSec = sec % 60;
+                    const ts = `${min}:${remSec < 10 ? "0" : ""}${remSec}`;
+                    frames.push({
+                      base64,
+                      mimeType: "image/jpeg",
+                      timeSeconds: sec,
+                      timestamp: ts,
+                    });
                   }
                 }
               } catch {
@@ -117,6 +128,7 @@ export async function extractVideoFrames(
           });
         }
 
+        (frames as any).duration = Math.round(duration);
         URL.revokeObjectURL(url);
         resolve(frames);
       };
@@ -132,3 +144,29 @@ export async function extractVideoFrames(
     }
   });
 }
+
+/**
+ * Get video duration in seconds directly using browser video element.
+ */
+export async function getVideoDuration(file: File | Blob): Promise<number> {
+  return new Promise((resolve) => {
+    try {
+      const url = URL.createObjectURL(file);
+      const video = document.createElement("video");
+      video.preload = "metadata";
+      video.onloadedmetadata = () => {
+        const d = Math.round(video.duration || 0);
+        URL.revokeObjectURL(url);
+        resolve(d);
+      };
+      video.onerror = () => {
+        URL.revokeObjectURL(url);
+        resolve(0);
+      };
+      video.src = url;
+    } catch {
+      resolve(0);
+    }
+  });
+}
+

@@ -2,6 +2,9 @@
  * Comment Replier — AI Reply Generation & YouTube Comment Posting
  * Handles generating AI-crafted replies and posting them directly to YouTube
  * via the YouTube Data API v3 `comments.insert()` endpoint.
+ * 
+ * Now features Smart Tone Matching — analyzes the creator's past manual replies
+ * to learn their unique voice and generates replies that sound like them.
  */
 
 import { google } from "googleapis";
@@ -9,6 +12,7 @@ import { getAuthenticatedYouTubeClient } from "../integrations/youtube/auth";
 import { callGemini } from "../ai/gemini";
 import { db } from "../db";
 import crypto from "crypto";
+import { getToneInstructionForPrompt } from "./tone-analyzer";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -123,15 +127,28 @@ export async function generateAIReply(
   const settings = await getCreatorReplySettings(userId);
   const creatorContext = customInstruction || settings.creatorContext || "";
 
+  // ─── Smart Tone Matching: Inject the creator's learned voice profile ───
+  let toneBlock = "";
+  try {
+    toneBlock = await getToneInstructionForPrompt(userId);
+    if (toneBlock) {
+      console.log(`[CommentReplier] 🎯 Tone profile injected for user ${userId.substring(0, 8)}...`);
+    }
+  } catch (err) {
+    console.warn("[CommentReplier] Tone profile fetch failed (non-critical):", err instanceof Error ? err.message : err);
+  }
+
   const systemPrompt = `You are a YouTube creator replying to a viewer's comment on your video.
-${creatorContext ? `\nCreator's reply style guidelines:\n${creatorContext}\n` : ""}
+${toneBlock}
+${creatorContext ? `\nAdditional creator guidelines:\n${creatorContext}\n` : ""}
 Rules:
-- Write a warm, authentic, conversational reply (1-3 sentences max).
-- Sound human and genuine, not robotic or corporate.
+- Write a warm, authentic, conversational reply.
+- Your #1 priority is to MATCH the creator's real voice as described in the Voice Profile above. Sound exactly like them — same formality, same emoji patterns, same energy, same language mix.
+- If no voice profile is provided, default to a friendly, human, conversational tone (1-3 sentences max).
 - If the viewer asks a question, answer it helpfully.
 - If the viewer gives praise, thank them genuinely.
-- If the viewer has criticism, acknowledge it gracefully and constructively.
-- Use emojis sparingly and naturally (1-2 max).
+- If the viewer has criticism or mocks you (e.g. using sarcastic laughing emojis), handle it gracefully with a witty comeback or self-deprecating humor. Do not just thank them for hate.
+- **IMPORTANT**: The comment may be in "Hinglish" (Hindi written in English). Accurately translate and understand the Hinglish meaning before replying. If the creator's voice profile shows they use Hinglish, reply in Hinglish too.
 - Do NOT use hashtags or promotional language.
 - Reply ONLY with the response text. No quotes, no "Reply:" prefix, no explanation.`;
 
@@ -368,8 +385,8 @@ export async function runAutoReply(
 
   // Build sentiment filter based on settings
   const sentimentFilters: string[] = [];
-  if (settings.replyToPositive) sentimentFilters.push("'positive'");
-  if (settings.replyToNegative) sentimentFilters.push("'negative'");
+  if (settings.replyToPositive) sentimentFilters.push("'positive'", "'mixed'");
+  if (settings.replyToNegative) sentimentFilters.push("'negative'", "'mixed'");
   if (settings.replyToQuestions) sentimentFilters.push("'neutral'"); // Questions often classified as neutral
   if (settings.replyToNeutral) sentimentFilters.push("'neutral'");
 

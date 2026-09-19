@@ -10,10 +10,66 @@ if (!process.env.TURSO_DATABASE_URL || !process.env.TURSO_AUTH_TOKEN) {
   );
 }
 
-export const db = createClient({
+const rawClient = createClient({
   url: process.env.TURSO_DATABASE_URL,
   authToken: process.env.TURSO_AUTH_TOKEN,
 });
+
+export const db = {
+  ...rawClient,
+  async execute(stmt: any) {
+    let lastError;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        return await rawClient.execute(stmt);
+      } catch (err: any) {
+        lastError = err;
+        const msg = err?.message || String(err);
+        if (
+          attempt < 3 &&
+          (msg.includes("CONNECT_TIMEOUT") ||
+           msg.includes("ConnectTimeoutError") ||
+           msg.includes("fetch failed") ||
+           msg.includes("ETIMEDOUT") ||
+           msg.includes("ECONNRESET") ||
+           msg.includes("network"))
+        ) {
+          console.warn(`[Database] Query retry ${attempt}/3 due to network timeout:`, msg);
+          await new Promise((r) => setTimeout(r, attempt * 600));
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw lastError;
+  },
+  async batch(stmts: any[], mode?: any) {
+    let lastError;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        return await rawClient.batch(stmts, mode);
+      } catch (err: any) {
+        lastError = err;
+        const msg = err?.message || String(err);
+        if (
+          attempt < 3 &&
+          (msg.includes("CONNECT_TIMEOUT") ||
+           msg.includes("ConnectTimeoutError") ||
+           msg.includes("fetch failed") ||
+           msg.includes("ETIMEDOUT") ||
+           msg.includes("ECONNRESET") ||
+           msg.includes("network"))
+        ) {
+          console.warn(`[Database] Batch retry ${attempt}/3 due to network timeout:`, msg);
+          await new Promise((r) => setTimeout(r, attempt * 600));
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw lastError;
+  },
+};
 
 /**
  * Initialize database schema.
@@ -633,6 +689,26 @@ async function runSchemaQueries() {
   } catch {
     // Best-effort — tables may not exist yet
   }
+
+  // ─── Creator Tone Profile Cache ───
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS tone_profiles (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      tone_summary TEXT NOT NULL,
+      formality TEXT DEFAULT 'casual',
+      emoji_usage TEXT DEFAULT 'moderate',
+      avg_reply_length TEXT DEFAULT 'short',
+      asks_followups INTEGER DEFAULT 0,
+      uses_humor INTEGER DEFAULT 0,
+      language_style TEXT DEFAULT 'english',
+      sample_replies TEXT,
+      analyzed_reply_count INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(user_id)
+    )
+  `);
 
   console.log("✅ Database initialized — all tables ready");
 }

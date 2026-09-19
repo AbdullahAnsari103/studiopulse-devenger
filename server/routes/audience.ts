@@ -25,6 +25,11 @@ import {
   deleteReplyFromYouTube,
   editReplyOnYouTube,
 } from "../audience/comment-replier";
+import {
+  getCreatorToneProfile,
+  updateCreatorToneProfile,
+  generateToneComparison,
+} from "../audience/tone-analyzer";
 
 import { db } from "../db";
 
@@ -322,5 +327,108 @@ router.put("/reply/edit", async (req: Request, res: Response) => {
   }
 });
 
-export default router;
+// ─── Tone Profile Endpoints ──────────────────────────────────────────────────
 
+/**
+ * GET /api/audience/tone-profile
+ * Retrieve the creator's learned voice profile.
+ */
+router.get("/tone-profile", async (req: Request, res: Response) => {
+  try {
+    const userId = req.query.userId as string;
+    if (!userId) {
+      res.status(400).json({ error: "userId is required" });
+      return;
+    }
+
+    const { profile, manualRepliesCount } = await getCreatorToneProfile(userId);
+    res.json({
+      profile,
+      manualRepliesCount,
+      message: profile
+        ? "Creator voice profile active"
+        : `Found ${manualRepliesCount} manual replies. Need at least 3 to auto-build profile.`,
+    });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to get tone profile";
+    res.status(500).json({ error: message });
+  }
+});
+
+/**
+ * POST /api/audience/tone-profile/refresh
+ * Force re-analyze the creator's voice from their latest replies.
+ */
+router.post("/tone-profile/refresh", async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.body;
+    if (!userId) {
+      res.status(400).json({ error: "userId is required" });
+      return;
+    }
+
+    const { profile, manualRepliesCount } = await getCreatorToneProfile(userId, true);
+    if (!profile) {
+      res.json({
+        profile: null,
+        manualRepliesCount,
+        message: `Found ${manualRepliesCount} manual replies. Reply to at least 3 comments manually or customize your tone below to build your voice profile.`,
+      });
+      return;
+    }
+
+    res.json({
+      profile,
+      manualRepliesCount,
+      message: "Voice profile successfully calibrated from your latest replies.",
+    });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to refresh tone profile";
+    res.status(500).json({ error: message });
+  }
+});
+
+/**
+ * PUT /api/audience/tone-profile
+ * Update or customize the creator's voice profile settings.
+ */
+router.put("/tone-profile", async (req: Request, res: Response) => {
+  try {
+    const { userId, ...updates } = req.body;
+    if (!userId) {
+      res.status(400).json({ error: "userId is required" });
+      return;
+    }
+
+    const profile = await updateCreatorToneProfile(userId, updates);
+    res.json({ profile, message: "Voice profile updated successfully." });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to update tone profile";
+    res.status(500).json({ error: message });
+  }
+});
+
+/**
+ * POST /api/audience/tone-profile/test
+ * Generate side-by-side comparison: generic chatbot vs cloned creator voice.
+ */
+router.post("/tone-profile/test", async (req: Request, res: Response) => {
+  try {
+    const { userId, commentText, authorName } = req.body;
+    if (!userId) {
+      res.status(400).json({ error: "userId is required" });
+      return;
+    }
+
+    const comment = commentText || "Loved the video! What camera and editing software do you use for your shots?";
+    const author = authorName || "DevFan";
+
+    const comparison = await generateToneComparison(userId, comment, author);
+    res.json(comparison);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to test tone comparison";
+    res.status(500).json({ error: message });
+  }
+});
+
+export default router;

@@ -33,6 +33,7 @@ import { useDashboard, type DashboardNotification } from "@/hooks/useDashboard";
 import { useConnectYouTube, useConnectMeta, useSyncPlatform } from "@/hooks/usePlatforms";
 import { useSettings } from "@/context/SettingsContext";
 import Sidebar from "@/components/layout/Sidebar";
+import { Skeleton, SkeletonCard, SkeletonChart, SkeletonList } from "@/components/common/Skeleton";
 import toast from "react-hot-toast";
 
 // ─── Format helpers ───────────────────────────────────────────────────────────
@@ -841,165 +842,68 @@ export default function DashboardPage() {
     return (stats?.totalViews ?? 0) * 0.0025 + (stats?.totalSubscribers ?? 0) * 0.15 + 12.50;
   }, [isEligible, stats?.totalRevenue, stats?.totalViews, stats?.totalSubscribers]);
 
+  const derivedViewsOverTime = useMemo(() => {
+    if (!data?.viewsOverTime?.length) return [];
+    return data.viewsOverTime.map((v) => ({ ...v }));
+  }, [data?.viewsOverTime]);
+
+  const filteredViewsData = useMemo(() => {
+    if (!derivedViewsOverTime?.length) return [];
+    return filterByRange(derivedViewsOverTime, activeRange);
+  }, [derivedViewsOverTime, activeRange]);
+
   const derivedStats = useMemo(() => {
     if (!stats) return null;
     
-    const ytViews = stats.totalViews ?? 0;
-    const ytSubs = stats.totalSubscribers ?? 0;
-    const rawWatchHours = stats.watchTimeHours ?? 0;
-    const ytWatchMins = stats.totalWatchTimeMinutes ?? Math.round(rawWatchHours * 60);
-    const ytRevenue = estRevenue;
+    // Check if user has selected a range (e.g. 7d, 30d, 90d, 365d)
+    const isRangeFiltered = activeRange !== "all" && filteredViewsData.length > 0;
+    
+    let rangeViewsSum = 0;
+    let rangeWatchMinsSum = 0;
+    let rangeSubsSum = 0;
+    let hasRangeData = false;
+    
+    if (isRangeFiltered) {
+      for (const d of filteredViewsData) {
+        if (d.views !== null && d.views !== undefined) {
+          rangeViewsSum += Number(d.views);
+          hasRangeData = true;
+        }
+        if (d.watchTime !== null && d.watchTime !== undefined) {
+          rangeWatchMinsSum += Number(d.watchTime);
+        }
+        if (d.subscribers !== null && d.subscribers !== undefined) {
+          rangeSubsSum += Number(d.subscribers);
+        }
+      }
+    }
+
+    const allTimeViews = stats.totalViews ?? 0;
+    const allTimeSubs = stats.totalSubscribers ?? 0;
+    const allTimeWatchTimeHours = stats.watchTimeHours ?? (stats.totalWatchTimeMinutes ? stats.totalWatchTimeMinutes / 60 : 0);
+    const allTimeWatchMins = stats.totalWatchTimeMinutes ?? Math.round(allTimeWatchTimeHours * 60);
+
+    const ytRevenue = stats.totalRevenue ?? estRevenue;
     const ytEng = stats.engagementRate ?? 0;
     
-    if (selectedPlatform === "youtube") {
-      return {
-        totalViews: ytViews,
-        totalSubscribers: ytSubs,
-        totalWatchTimeMinutes: ytWatchMins,
-        watchTimeHours: rawWatchHours,
-        totalRevenue: ytRevenue,
-        engagementRate: ytEng,
-        viewsTrend: stats.viewsTrend ?? 0,
-        subscribersTrend: stats.subscribersTrend ?? 0,
-        watchTimeTrend: stats.watchTimeTrend ?? 0,
-        revenueTrend: stats.revenueTrend ?? 0,
-        engagementTrend: stats.engagementTrend ?? 0,
-      };
-    }
-    
-    if (selectedPlatform === "instagram") {
-      return {
-        totalViews: Math.round(ytViews * 2.8),
-        totalSubscribers: Math.round(ytSubs * 3.5),
-        totalWatchTimeMinutes: ytWatchMins,
-        watchTimeHours: rawWatchHours,
-        totalRevenue: Math.round(ytRevenue * 0.5),
-        engagementRate: ytEng * 1.5,
-        viewsTrend: (stats.viewsTrend ?? 0) + 2,
-        subscribersTrend: (stats.subscribersTrend ?? 0) + 1,
-        watchTimeTrend: stats.watchTimeTrend ?? 0,
-        revenueTrend: (stats.revenueTrend ?? 0) + 3,
-        engagementTrend: (stats.engagementTrend ?? 0) + 0.5,
-      };
-    }
-    
-    if (selectedPlatform === "tiktok") {
-      return {
-        totalViews: Math.round(ytViews * 6.2),
-        totalSubscribers: Math.round(ytSubs * 8.5),
-        totalWatchTimeMinutes: ytWatchMins,
-        watchTimeHours: rawWatchHours,
-        totalRevenue: Math.round(ytRevenue * 0.3),
-        engagementRate: ytEng * 1.8,
-        viewsTrend: (stats.viewsTrend ?? 0) + 5,
-        subscribersTrend: (stats.subscribersTrend ?? 0) + 6,
-        watchTimeTrend: stats.watchTimeTrend ?? 0,
-        revenueTrend: (stats.revenueTrend ?? 0) + 1,
-        engagementTrend: (stats.engagementTrend ?? 0) + 1.2,
-      };
-    }
-    
-    // "all"
-    let totalViews = ytViews;
-    let totalSubscribers = ytSubs;
-    let totalWatchTimeMinutes = ytWatchMins;
-    let watchTimeHours = rawWatchHours;
-    let totalRevenue = ytRevenue;
-    let sumEng = ytEng;
-    let countEng = 1;
-    
-    if (isInstagramConnected) {
-      totalViews += Math.round(ytViews * 2.8);
-      totalSubscribers += Math.round(ytSubs * 3.5);
-      totalRevenue += Math.round(ytRevenue * 0.5);
-      sumEng += ytEng * 1.5;
-      countEng++;
-    }
-    
-    if (isTikTokConnected) {
-      totalViews += Math.round(ytViews * 6.2);
-      totalSubscribers += Math.round(ytSubs * 8.5);
-      totalRevenue += Math.round(ytRevenue * 0.3);
-      sumEng += ytEng * 1.8;
-      countEng++;
-    }
-    
     return {
-      totalViews,
-      totalSubscribers,
-      totalWatchTimeMinutes,
-      watchTimeHours,
-      totalRevenue,
-      engagementRate: sumEng / countEng,
+      totalViews: allTimeViews,
+      rangeViews: rangeViewsSum,
+      totalSubscribers: allTimeSubs,
+      rangeSubscribers: rangeSubsSum,
+      totalWatchTimeMinutes: allTimeWatchMins,
+      rangeWatchTimeMinutes: rangeWatchMinsSum,
+      watchTimeHours: allTimeWatchTimeHours,
+      rangeWatchTimeHours: rangeWatchMinsSum / 60,
+      totalRevenue: ytRevenue,
+      engagementRate: ytEng,
       viewsTrend: stats.viewsTrend ?? 0,
       subscribersTrend: stats.subscribersTrend ?? 0,
       watchTimeTrend: stats.watchTimeTrend ?? 0,
       revenueTrend: stats.revenueTrend ?? 0,
       engagementTrend: stats.engagementTrend ?? 0,
     };
-  }, [stats, estRevenue, selectedPlatform, isInstagramConnected, isTikTokConnected]);
-
-  const derivedViewsOverTime = useMemo(() => {
-    if (!data?.viewsOverTime?.length) return [];
-    return data.viewsOverTime.map((v) => {
-      if (selectedPlatform === "youtube") {
-        return { ...v };
-      }
-      if (selectedPlatform === "instagram") {
-        return {
-          date: v.date,
-          views: Math.round(v.views * 2.8),
-          watchTime: Math.round(v.watchTime * 1.2),
-          subscribers: Math.round(v.subscribers * 3.5),
-          revenue: Math.round(v.revenue * 0.5),
-          engagement: v.engagement * 1.5,
-        };
-      }
-      if (selectedPlatform === "tiktok") {
-        return {
-          date: v.date,
-          views: Math.round(v.views * 6.2),
-          watchTime: Math.round(v.watchTime * 1.8),
-          subscribers: Math.round(v.subscribers * 8.5),
-          revenue: Math.round(v.revenue * 0.3),
-          engagement: v.engagement * 1.8,
-        };
-      }
-      // "all" - aggregates all connected platforms
-      let views = v.views;
-      let watchTime = v.watchTime;
-      let subscribers = v.subscribers;
-      let revenue = v.revenue;
-      let engagement = v.engagement;
-      let count = 1;
-
-      if (isInstagramConnected) {
-        views += Math.round(v.views * 2.8);
-        watchTime += Math.round(v.watchTime * 1.2);
-        subscribers += Math.round(v.subscribers * 3.5);
-        revenue += Math.round(v.revenue * 0.5);
-        engagement += v.engagement * 1.5;
-        count++;
-      }
-      if (isTikTokConnected) {
-        views += Math.round(v.views * 6.2);
-        watchTime += Math.round(v.watchTime * 1.8);
-        subscribers += Math.round(v.subscribers * 8.5);
-        revenue += Math.round(v.revenue * 0.3);
-        engagement += v.engagement * 1.8;
-        count++;
-      }
-
-      return {
-        date: v.date,
-        views,
-        watchTime,
-        subscribers,
-        revenue,
-        engagement: engagement / count,
-      };
-    });
-  }, [data?.viewsOverTime, selectedPlatform, isInstagramConnected, isTikTokConnected]);
+  }, [stats, estRevenue, activeRange, filteredViewsData]);
 
   const derivedRevenueOverview = useMemo(() => {
     if (!derivedViewsOverTime?.length) return [];
@@ -1083,42 +987,31 @@ export default function DashboardPage() {
     return enrichSparkline(raw, baseVal, 3.5, "flat");
   }, [derivedViewsOverTime, derivedStats?.engagementRate]);
 
-  // ── Filtered chart data based on active range ────────────────────────────────
-  const filteredViewsData = useMemo(() => {
-    if (!derivedViewsOverTime?.length) return [];
-    return filterByRange(derivedViewsOverTime, activeRange);
-  }, [derivedViewsOverTime, activeRange]);
-
   const estRevenueVal = derivedStats?.totalRevenue ?? 0;
 
   const platformBreakdownData = useMemo(() => {
     const ytViews = stats?.totalViews ?? 0;
-    const igViews = isInstagramConnected ? Math.round(ytViews * 2.8) : 0;
-    const ttViews = isTikTokConnected ? Math.round(ytViews * 6.2) : 0;
-
     const showAll = selectedPlatform === "all";
     const activeYt = showAll || selectedPlatform === "youtube";
     const activeIg = showAll || selectedPlatform === "instagram";
     const activeTt = showAll || selectedPlatform === "tiktok";
-
-    const totalViewsAll = (activeYt ? ytViews : 0) + (activeIg ? igViews : 0) + (activeTt ? ttViews : 0);
 
     const items = [
       {
         platform: "YouTube",
         icon: <YouTubeIcon size={16} />,
         value: `${fmt(ytViews)} views`,
-        pct: totalViewsAll > 0 && activeYt ? Math.round((ytViews / totalViewsAll) * 100) : 0,
+        pct: ytViews > 0 && activeYt ? 100 : 0,
         color: "#FF0000",
         gradClass: "from-red-500 to-red-700",
-        connected: true,
+        connected: hasYouTube,
         active: activeYt,
       },
       {
         platform: "Instagram",
         icon: <InstagramIcon size={16} />,
-        value: isInstagramConnected ? `${fmt(igViews)} views` : "Not connected",
-        pct: totalViewsAll > 0 && isInstagramConnected && activeIg ? Math.round((igViews / totalViewsAll) * 100) : 0,
+        value: isInstagramConnected ? `Connected` : "Not connected",
+        pct: 0,
         color: "#e1306c",
         gradClass: "from-pink-500 to-rose-600",
         connected: isInstagramConnected,
@@ -1127,8 +1020,8 @@ export default function DashboardPage() {
       {
         platform: "TikTok",
         icon: <TikTokIcon size={16} />,
-        value: isTikTokConnected ? `${fmt(ttViews)} views` : "Not connected",
-        pct: totalViewsAll > 0 && isTikTokConnected && activeTt ? Math.round((ttViews / totalViewsAll) * 100) : 0,
+        value: isTikTokConnected ? `Connected` : "Not connected",
+        pct: 0,
         color: "#00f2ea",
         gradClass: "from-teal-400 to-cyan-500",
         connected: isTikTokConnected,
@@ -1137,15 +1030,15 @@ export default function DashboardPage() {
     ];
 
     const pieData = items
-      .filter((item) => item.connected && item.active && (item.platform === "YouTube" ? ytViews > 0 : item.platform === "Instagram" ? igViews > 0 : ttViews > 0))
+      .filter((item) => item.connected && item.active && (item.platform === "YouTube" ? ytViews > 0 : false))
       .map((item) => ({
         name: item.platform,
-        value: item.platform === "YouTube" ? ytViews : item.platform === "Instagram" ? igViews : ttViews,
+        value: ytViews,
         color: item.color,
       }));
 
-    return { items, pieData, totalViewsAll };
-  }, [stats?.totalViews, isInstagramConnected, isTikTokConnected, selectedPlatform]);
+    return { items, pieData, totalViewsAll: ytViews };
+  }, [stats?.totalViews, isInstagramConnected, isTikTokConnected, selectedPlatform, hasYouTube]);
 
 
 
@@ -1217,19 +1110,56 @@ export default function DashboardPage() {
     };
   }, [filteredViewsData, activeMetric]);
 
-  // ── Loading ─────────────────────────────────────────────────────────────────
+  // ── Loading Skeleton ────────────────────────────────────────────────────────
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#080816] flex items-center justify-center">
-        <div className="text-center">
-          <div className="relative w-16 h-16 mx-auto mb-5">
-            <div className="absolute inset-0 rounded-2xl bg-purple-500/10 animate-ping" />
-            <div className="w-16 h-16 bg-purple-500/15 rounded-2xl flex items-center justify-center border border-purple-500/25">
-              <img src="/image.png" alt="" className="w-9 h-9 object-contain animate-logo-think" />
+      <div className="flex h-screen bg-[#080816] text-white overflow-hidden" style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
+        <Sidebar activePage="dashboard" />
+        <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
+          {/* Header Skeleton */}
+          <div className="px-6 py-8 sm:px-10 border-b border-white/[0.04]">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 max-w-7xl mx-auto">
+              <div className="space-y-2">
+                <Skeleton className="w-32 h-3 rounded" />
+                <Skeleton className="w-64 h-8 rounded-2xl" />
+              </div>
+              <div className="flex items-center gap-3">
+                <Skeleton className="w-36 h-10 rounded-xl" />
+                <Skeleton className="w-28 h-10 rounded-xl" />
+              </div>
             </div>
           </div>
-          <p className="text-white font-semibold text-[16px] mb-1">Loading your dashboard</p>
-          <p className="text-gray-500 text-[13px]">Fetching your creator data…</p>
+
+          {/* Body Skeleton */}
+          <div className="p-6 sm:p-10 space-y-8 max-w-7xl mx-auto w-full">
+            {/* 4 Stat Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <SkeletonCard />
+              <SkeletonCard />
+              <SkeletonCard />
+              <SkeletonCard />
+            </div>
+
+            {/* Analytics Chart Skeleton */}
+            <SkeletonChart />
+
+            {/* Bottom Section */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-2 p-6 rounded-3xl bg-white/[0.02] border border-white/[0.04] space-y-4">
+                <div className="flex items-center justify-between">
+                  <Skeleton className="w-40 h-5 rounded-lg" />
+                  <Skeleton className="w-20 h-4 rounded-md" />
+                </div>
+                <SkeletonList count={3} />
+              </div>
+
+              <div className="p-6 rounded-3xl bg-white/[0.02] border border-white/[0.04] space-y-4">
+                <Skeleton className="w-32 h-5 rounded-lg" />
+                <SkeletonCard />
+                <Skeleton className="w-full h-10 rounded-xl mt-4" />
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -1452,8 +1382,9 @@ export default function DashboardPage() {
                 <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
                   <StatCard
                     icon={<Eye className="w-4 h-4" />} iconColor="text-cyan-400" iconBg="bg-cyan-500/10" glowColor="#38bdf8"
-                    label={t("dash.totalViews")} displayValue={fmt(derivedStats?.totalViews ?? 0)}
-                    subLabel={`${(derivedStats?.totalViews ?? 0).toLocaleString()} total`}
+                    label={t("dash.totalViews")}
+                    displayValue={fmt(derivedStats?.totalViews ?? 0)}
+                    subLabel={`${(derivedStats?.totalViews ?? 0).toLocaleString()} exact views`}
                     trend={getDisplayTrend(derivedStats?.viewsTrend ?? 0, 0)} trendLabel={trendLabelText}
                     chartData={sparklineViews} chartColor="#38bdf8" chartGradId="grad_views"
                   />
@@ -1461,11 +1392,11 @@ export default function DashboardPage() {
                     icon={<Clock className="w-4 h-4" />} iconColor="text-amber-400" iconBg="bg-amber-500/10" glowColor="#fbbf24"
                     label={t("dash.watchTime")}
                     displayValue={
-                      (derivedStats?.watchTimeHours ?? 0) > 0 && (derivedStats?.watchTimeHours ?? 0) < 10
-                        ? `${(derivedStats?.watchTimeHours ?? 0).toFixed(2)}h`
+                      (derivedStats?.watchTimeHours ?? 0) > 0
+                        ? `${(derivedStats?.watchTimeHours ?? 0).toFixed(1)}h`
                         : `${Math.round(derivedStats?.watchTimeHours ?? 0)}h`
                     }
-                    subLabel={`${Math.round((derivedStats?.watchTimeHours ?? 0) * 60)} min total`}
+                    subLabel={`${Math.round(derivedStats?.totalWatchTimeMinutes ?? 0)} min exact (${(derivedStats?.watchTimeHours ?? 0).toFixed(2)} hrs)`}
                     trend={getDisplayTrend(derivedStats?.watchTimeTrend ?? 0, 1)} trendLabel={trendLabelText}
                     chartData={sparklineWatchTime} chartColor="#fbbf24" chartGradId="grad_wt"
                     unavailable={watchTimeUnavailable}
@@ -1473,8 +1404,8 @@ export default function DashboardPage() {
                   <StatCard
                     icon={<Users className="w-4 h-4" />} iconColor="text-emerald-400" iconBg="bg-emerald-500/10" glowColor="#34d399"
                     label={t("dash.subscribers")}
-                    displayValue={fmt(derivedStats?.totalSubscribers ?? 0)}
-                    subLabel={`${(derivedStats?.totalSubscribers ?? 0).toLocaleString()} total`}
+                    displayValue={`+${derivedStats?.totalSubscribers ?? 0}`}
+                    subLabel={`${(derivedStats?.totalSubscribers ?? 0).toLocaleString()} total subscribers`}
                     trend={getDisplayTrend(derivedStats?.subscribersTrend ?? 0, 2)} trendLabel={trendLabelText}
                     chartData={sparklineSubscribers} chartColor="#34d399" chartGradId="grad_subs"
                   />
@@ -1493,7 +1424,7 @@ export default function DashboardPage() {
                     id="audience"
                     icon={<Heart className="w-4 h-4" />} iconColor="text-pink-400" iconBg="bg-pink-500/10" glowColor="#f472b6"
                     label={t("dash.engagement")} displayValue={`${(derivedStats?.engagementRate ?? 0).toFixed(2)}%`}
-                    subLabel={`${fmt(Math.round((data?.topVideos?.reduce((a, v) => a + v.likes, 0) ?? 0) * (selectedPlatform === "instagram" ? 1.5 : selectedPlatform === "tiktok" ? 1.8 : selectedPlatform === "all" ? (1 + (isInstagramConnected ? 1.5 : 0) + (isTikTokConnected ? 1.8 : 0)) : 1)))} likes total`}
+                    subLabel={`${fmt(data?.topVideos?.reduce((a, v) => a + v.likes, 0) ?? 0)} likes total`}
                     trend={getDisplayTrend(derivedStats?.engagementTrend ?? 0, 4)} trendLabel={trendLabelText}
                     chartData={sparklineEngagement} chartColor="#f472b6" chartGradId="grad_eng"
                   />

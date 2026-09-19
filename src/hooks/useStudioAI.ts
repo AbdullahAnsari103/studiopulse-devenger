@@ -25,6 +25,7 @@ export function useStudioAI() {
   const [isLoading, setIsLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [conversationsLoaded, setConversationsLoaded] = useState(false);
+  const [aiMode, setAiMode] = useState<"normal" | "web">("normal");
 
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -40,20 +41,30 @@ export function useStudioAI() {
     }
   }, [userId]);
 
-  // Load conversations on mount
-  useEffect(() => {
-    if (userId && !conversationsLoaded) {
-      loadConversations();
-    }
-  }, [userId, conversationsLoaded, loadConversations]);
-
   // ─── Load conversation messages ───
   const loadConversation = useCallback(async (conversationId: string) => {
     if (!userId) return;
     setIsLoading(true);
     try {
       const res = await apiClient.get(`/api/ai/conversations/${conversationId}?userId=${userId}`);
-      setMessages(res.data.messages || []);
+      const rawMessages = res.data.messages || [];
+      const parsedMessages: AIMessage[] = rawMessages.map((m: any) => {
+        let sources = [];
+        if (m.metadata) {
+          try {
+            const meta = typeof m.metadata === "string" ? JSON.parse(m.metadata) : m.metadata;
+            sources = meta.sources || [];
+          } catch {
+            // ignore
+          }
+        }
+        return {
+          ...m,
+          sources,
+          isWebSearch: sources.length > 0,
+        };
+      });
+      setMessages(parsedMessages);
       setActiveConversationId(conversationId);
     } catch (error) {
       console.error("[useStudioAI] Failed to load conversation:", error);
@@ -70,9 +81,10 @@ export function useStudioAI() {
   }, []);
 
   // ─── Send message with SSE streaming ───
-  const sendMessage = useCallback(async (content: string) => {
+  const sendMessage = useCallback(async (content: string, explicitMode?: "normal" | "web") => {
     if (!userId || !content.trim() || isSending) return;
 
+    const currentMode = explicitMode || aiMode;
     setIsSending(true);
 
     // Optimistically add user message
@@ -92,6 +104,8 @@ export function useStudioAI() {
       role: "assistant",
       content: "",
       isStreaming: true,
+      isSearchingWeb: currentMode === "web",
+      sources: [],
     });
 
     try {
@@ -106,6 +120,7 @@ export function useStudioAI() {
           conversationId: activeConversationId,
           message: content.trim(),
           userName,
+          aiMode: currentMode,
         }),
         signal: abortControllerRef.current.signal,
       });
@@ -133,6 +148,7 @@ export function useStudioAI() {
       let fullContent = "";
       let newConversationId = activeConversationId;
       let assistantMessageId = "";
+      let collectedSources: any[] = [];
 
       while (true) {
         const { done, value } = await reader.read();
@@ -159,15 +175,76 @@ export function useStudioAI() {
                   setActiveConversationId(newConversationId);
                   break;
 
+                case "web_search":
+                  setStreamingMessage((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          isSearchingWeb: true,
+                          webSearchQuery: parsed.query,
+                          researchStage: parsed.stage,
+                          researchMessage: parsed.message,
+                        }
+                      : null
+                  );
+                  break;
+
+                case "web_sources":
+                  if (parsed.sources && Array.isArray(parsed.sources)) {
+                    collectedSources = parsed.sources;
+                    setStreamingMessage((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            isSearchingWeb: false,
+                            sources: collectedSources,
+                          }
+                        : null
+                    );
+                  }
+                  break;
+
+                case "start":
+                  if (parsed.sources && Array.isArray(parsed.sources)) {
+                    collectedSources = parsed.sources;
+                  }
+                  break;
+
                 case "chunk":
                   fullContent += parsed.text;
                   setStreamingMessage((prev) =>
-                    prev ? { ...prev, content: fullContent } : null
+                    prev
+                      ? {
+                          ...prev,
+                          content: fullContent,
+                          isSearchingWeb: false,
+                          sources: collectedSources,
+                        }
+                      : null
                   );
+                  break;
+
+                case "replace":
+                  if (parsed.text) {
+                    fullContent = parsed.text;
+                    setStreamingMessage((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            content: fullContent,
+                            isSearchingWeb: false,
+                            sources: collectedSources,
+                          }
+                        : null
+                    );
+                  }
                   break;
 
                 case "done":
                   assistantMessageId = parsed.messageId;
+                  if (parsed.sources && Array.isArray(parsed.sources)) {
+                    collectedSources = parsed.sources;
+                  }
                   break;
 
                 case "error":
@@ -205,6 +282,8 @@ export function useStudioAI() {
           role: "assistant",
           content: fullContent,
           created_at: new Date().toISOString(),
+          sources: collectedSources,
+          isWebSearch: collectedSources.length > 0,
         };
         setMessages((prev) => [...prev, finalMsg]);
       }
@@ -246,7 +325,7 @@ export function useStudioAI() {
       setIsSending(false);
       abortControllerRef.current = null;
     }
-  }, [userId, userName, activeConversationId, isSending, loadConversations]);
+  }, [userId, userName, activeConversationId, isSending, aiMode, loadConversations]);
 
   // ─── Delete conversation ───
   const deleteConversation = useCallback(async (conversationId: string) => {
@@ -263,12 +342,202 @@ export function useStudioAI() {
     }
   }, [userId, activeConversationId]);
 
+  // ─── Edit message and re-generate from that point ───
+  const editMessage = useCallback(
+    async (messageId: string, newContent: string, explicitMode?: "normal" | "web") => {
+      if (!userId || !newContent.trim() || isSending) return;
+
+      const msgIndex = messages.findIndex((m) => m.id === messageId);
+      if (msgIndex === -1) return;
+
+      const currentMode = explicitMode || aiMode;
+
+      // Truncate messages up to this point and update the user message
+      const updatedUserMsg: AIMessage = {
+        ...messages[msgIndex],
+        content: newContent.trim(),
+      };
+      const truncated = [...messages.slice(0, msgIndex), updatedUserMsg];
+      setMessages(truncated);
+
+      setIsSending(true);
+
+      // Start streaming response for the edited prompt
+      setStreamingMessage({
+        id: `streaming-${Date.now()}`,
+        role: "assistant",
+        content: "",
+        isStreaming: true,
+        isSearchingWeb: currentMode === "web",
+        sources: [],
+      });
+
+      try {
+        abortControllerRef.current = new AbortController();
+
+        const response = await fetch(`${API_BASE}/api/ai/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            userId,
+            conversationId: activeConversationId,
+            message: newContent.trim(),
+            userName,
+            aiMode: currentMode,
+          }),
+          signal: abortControllerRef.current.signal,
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const reader = response.body?.getReader();
+        if (!reader) throw new Error("No response stream");
+
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let fullContent = "";
+        let newConversationId = activeConversationId;
+        let assistantMessageId = "";
+        let collectedSources: any[] = [];
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+
+          let eventType = "";
+          for (const line of lines) {
+            if (line.startsWith("event: ")) {
+              eventType = line.slice(7).trim();
+            } else if (line.startsWith("data: ")) {
+              const data = line.slice(6);
+              try {
+                const parsed = JSON.parse(data);
+
+                switch (eventType) {
+                  case "conversation_id":
+                    newConversationId = parsed.conversationId;
+                    setActiveConversationId(newConversationId);
+                    break;
+
+                  case "web_search":
+                    setStreamingMessage((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            isSearchingWeb: true,
+                            webSearchQuery: parsed.query,
+                            researchStage: parsed.stage,
+                            researchMessage: parsed.message,
+                          }
+                        : null
+                    );
+                    break;
+
+                  case "web_sources":
+                    if (parsed.sources && Array.isArray(parsed.sources)) {
+                      collectedSources = parsed.sources;
+                      setStreamingMessage((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              sources: parsed.sources,
+                            }
+                          : null
+                      );
+                    }
+                    break;
+
+                  case "chunk":
+                    if (parsed.text) {
+                      fullContent += parsed.text;
+                      setStreamingMessage((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              content: fullContent,
+                            }
+                          : null
+                      );
+                    }
+                    break;
+
+                  case "replace":
+                    if (parsed.text) {
+                      fullContent = parsed.text;
+                      setStreamingMessage((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              content: fullContent,
+                            }
+                          : null
+                      );
+                    }
+                    break;
+
+                  case "message_id":
+                    assistantMessageId = parsed.messageId;
+                    break;
+
+                  case "done":
+                    break;
+                }
+              } catch {
+                // ignore parse errors
+              }
+            }
+          }
+        }
+
+        if (fullContent) {
+          const finalMsg: AIMessage = {
+            id: assistantMessageId || `msg-${Date.now()}`,
+            conversation_id: newConversationId || "",
+            user_id: userId,
+            role: "assistant",
+            content: fullContent,
+            created_at: new Date().toISOString(),
+            sources: collectedSources,
+            isWebSearch: collectedSources.length > 0,
+          };
+          setMessages((prev) => [...prev, finalMsg]);
+        }
+
+        setStreamingMessage(null);
+        setTimeout(() => loadConversations(), 1500);
+      } catch (error: any) {
+        if (error.name === "AbortError") {
+          console.log("[useStudioAI] Edit generation aborted");
+        } else {
+          console.error("[useStudioAI] Error in editMessage:", error);
+        }
+      } finally {
+        setIsSending(false);
+        setStreamingMessage(null);
+      }
+    },
+    [userId, userName, isSending, aiMode, activeConversationId, messages, loadConversations]
+  );
+
   // ─── Cancel streaming ───
   const cancelStreaming = useCallback(() => {
     abortControllerRef.current?.abort();
     setStreamingMessage(null);
     setIsSending(false);
   }, []);
+
+  // ─── Load conversations on mount ───
+  useEffect(() => {
+    if (userId && !conversationsLoaded) {
+      loadConversations();
+    }
+  }, [userId, conversationsLoaded, loadConversations]);
 
   return {
     conversations,
@@ -277,7 +546,10 @@ export function useStudioAI() {
     streamingMessage,
     isLoading,
     isSending,
+    aiMode,
+    setAiMode,
     sendMessage,
+    editMessage,
     loadConversation,
     startNewConversation,
     deleteConversation,

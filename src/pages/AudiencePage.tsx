@@ -14,9 +14,12 @@ import {
   AlertTriangle, Reply, ExternalLink, Play, CornerDownRight, X,
   Eye, TrendingUp, ArrowUpRight, Trash2, Pencil, Send, BarChart3,
   Clock, MessageSquareDashed, Filter, ChevronRight, Bookmark,
+  Wand2, Volume2,
 } from "lucide-react";
 import Sidebar from "@/components/layout/Sidebar";
 import { useAudienceAnalysis, type YouTubeComment } from "@/hooks/useAudienceAnalysis";
+import { celebrate } from "@/lib/celebrate";
+import { showActionToast } from "@/lib/actionToast";
 import toast from "react-hot-toast";
 
 const THUMB_FB = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='90' fill='%23111128'%3E%3Crect width='120' height='90' rx='4'/%3E%3Ctext x='50%25' y='54%25' dominant-baseline='middle' text-anchor='middle' font-size='20' fill='%23282852'%3E▶%3C/text%3E%3C/svg%3E";
@@ -96,6 +99,13 @@ export default function AudiencePage() {
     videoId?: string; videoTitle?: string; originalComment?: string; originalAuthor?: string; sentiment?: string;
   }[]>([]);
 
+  // Smart Tone Matching / Voice Clone state
+  const [testVoiceModalOpen, setTestVoiceModalOpen] = useState(false);
+  const [testCommentInput, setTestCommentInput] = useState("Loved the video! What camera and lens setup do you recommend for beginners?");
+  const [testAuthorInput, setTestAuthorInput] = useState("Alex");
+  const [testResult, setTestResult] = useState<{ genericReply: string; personalizedReply: string; profile: any } | null>(null);
+  const [showVoiceSamples, setShowVoiceSamples] = useState(false);
+
   // Dropdown
   const [dd, setDd] = useState(false);
   const [ddQ, setDdQ] = useState("");
@@ -109,9 +119,11 @@ export default function AudiencePage() {
 
   const {
     videos, comments, stats, analysis, replySettings,
+    toneProfile, manualRepliesCount, toneMessage,
     isLoading, isSyncing, isSavingSettings, isAutoReplying,
+    isRefreshingTone, isUpdatingTone, isTestingTone,
     syncComments, generateReply, postReply, saveReplySettings, runAutoReply,
-    deleteReply, editReply,
+    deleteReply, editReply, refreshToneProfile, updateToneProfile, testToneReply,
   } = useAudienceAnalysis({ videoId: selectedVideoId || undefined, sentimentFilter: sentiment, sortBy });
 
   useEffect(() => {
@@ -178,7 +190,20 @@ export default function AudiencePage() {
     if (!replyTarget || !replyDraft.trim()) return; setPostLoading(true);
     try {
       const r = await postReply({ commentDbId: replyTarget.id, parentCommentId: replyTarget.commentId, commentText: replyTarget.textOriginal, authorName: replyTarget.authorName, customReplyText: replyDraft });
-      if (r.postedToYouTube) { toast.success("Reply posted!", { duration: 4000 }); setReplyTarget(null); }
+      if (r.postedToYouTube) {
+        celebrate.sparkles();
+        showActionToast({
+          title: "Reply posted to YouTube! 🎉",
+          message: `Your voice-matched reply to ${replyTarget.authorName} is live.`,
+          icon: "💬",
+          actionLabel: "Reply to Next",
+          onAction: () => {
+            const unreplied = comments.find(c => !c.ownerReplied && c.id !== replyTarget.id);
+            if (unreplied) openReply(unreplied);
+          },
+        });
+        setReplyTarget(null);
+      }
       else toast.error("Could not post.");
     } catch (e: unknown) { toast.error(e instanceof Error ? e.message : "Failed"); }
     finally { setPostLoading(false); }
@@ -199,6 +224,106 @@ export default function AudiencePage() {
   };
   const saveSett = async () => { try { await saveReplySettings({ creatorContext: ctx, autoReplyEnabled: autoOn, replyToPositive: fPos, replyToNegative: fNeg, replyToQuestions: fQ, replyToNeutral: fNeu, maxRepliesPerRun: maxR }); toast.success("Saved!"); } catch { toast.error("Save failed"); } };
   const doAR = async (post: boolean) => { try { toast.loading("Running auto-reply...", { id: "ar" }); const r = await runAutoReply({ videoId: selectedVideoId || undefined, postToYouTube: post }); setArResults(r.replies || []); toast.success(`${r.repliesGenerated} generated, ${r.repliesPosted} posted`, { id: "ar", duration: 5000 }); } catch { toast.error("Failed", { id: "ar" }); } };
+
+  /* ── Tone Matching Handlers ── */
+  const handleRefreshTone = async () => {
+    try {
+      toast.loading("Analyzing your past manual replies...", { id: "tone" });
+      const res = await refreshToneProfile();
+      if (res.profile) {
+        toast.success("Voice profile updated from recent replies!", { id: "tone" });
+      } else {
+        toast(res.message || "Need at least 3 manual replies to calibrate.", { id: "tone", icon: "ℹ️" });
+      }
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to analyze tone", { id: "tone" });
+    }
+  };
+
+  const cycleFormality = async () => {
+    if (!toneProfile) return;
+    const next = toneProfile.formality === "casual" ? "balanced" : toneProfile.formality === "balanced" ? "formal" : "casual";
+    try {
+      await updateToneProfile({ formality: next });
+      toast.success(`Formality set to: ${next}`);
+    } catch {
+      toast.error("Failed to update formality");
+    }
+  };
+
+  const cycleEmoji = async () => {
+    if (!toneProfile) return;
+    const next = toneProfile.emojiUsage === "none" ? "sparse" : toneProfile.emojiUsage === "sparse" ? "moderate" : toneProfile.emojiUsage === "moderate" ? "heavy" : "none";
+    try {
+      await updateToneProfile({ emojiUsage: next });
+      toast.success(`Emoji usage set to: ${next}`);
+    } catch {
+      toast.error("Failed to update emoji style");
+    }
+  };
+
+  const cycleLength = async () => {
+    if (!toneProfile) return;
+    const next = toneProfile.avgReplyLength === "short" ? "medium" : toneProfile.avgReplyLength === "medium" ? "long" : "short";
+    try {
+      await updateToneProfile({ avgReplyLength: next });
+      toast.success(`Reply length set to: ${next}`);
+    } catch {
+      toast.error("Failed to update reply length");
+    }
+  };
+
+  const toggleFollowups = async () => {
+    if (!toneProfile) return;
+    try {
+      await updateToneProfile({ asksFollowups: !toneProfile.asksFollowups });
+      toast.success(toneProfile.asksFollowups ? "Follow-up questions turned off" : "Follow-up questions enabled");
+    } catch {
+      toast.error("Failed to update questions");
+    }
+  };
+
+  const toggleHumor = async () => {
+    if (!toneProfile) return;
+    try {
+      await updateToneProfile({ usesHumor: !toneProfile.usesHumor });
+      toast.success(toneProfile.usesHumor ? "Humor set to straightforward" : "Witty & playful humor enabled");
+    } catch {
+      toast.error("Failed to update humor setting");
+    }
+  };
+
+  const handleInitializeStarterTone = async () => {
+    try {
+      toast.loading("Setting up your voice profile...", { id: "init-tone" });
+      await updateToneProfile({
+        toneSummary: "Engaging, casual and authentic creator tone. Uses light slang, enthusiastic emojis, and connects genuinely with viewers.",
+        formality: "casual",
+        emojiUsage: "moderate",
+        avgReplyLength: "short",
+        asksFollowups: true,
+        usesHumor: true,
+        languageStyle: "English",
+      });
+      toast.success("Voice profile ready! You can test or customize it anytime.", { id: "init-tone" });
+    } catch {
+      toast.error("Failed to initialize voice profile", { id: "init-tone" });
+    }
+  };
+
+  const runVoiceTest = async (comment?: string, author?: string) => {
+    const textToTest = comment || testCommentInput;
+    const authorToTest = author || testAuthorInput;
+    if (!textToTest.trim()) return;
+    try {
+      toast.loading("Generating side-by-side comparison...", { id: "test-voice" });
+      const res = await testToneReply({ commentText: textToTest.trim(), authorName: authorToTest.trim() || "Viewer" });
+      setTestResult(res);
+      toast.success("Comparison ready!", { id: "test-voice" });
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Test failed", { id: "test-voice" });
+    }
+  };
 
   /* ── Atoms ── */
   const Dot = ({ color }: { color: string }) => <span className={`inline-block w-[6px] h-[6px] rounded-full ${color}`} />;
@@ -624,7 +749,14 @@ export default function AudiencePage() {
                         className="w-full max-w-lg bg-[#0a0a22] border border-white/[0.06] rounded-2xl shadow-2xl shadow-black/60 overflow-hidden max-h-[90vh] overflow-y-auto">
                         <div className="p-5 border-b border-white/[0.04]">
                           <div className="flex items-center justify-between mb-4">
-                            <p className="text-[11px] font-mono text-purple-400/60 uppercase tracking-[0.15em]">Replying to comment</p>
+                            <div className="flex items-center gap-2">
+                              <p className="text-[11px] font-mono text-purple-400/60 uppercase tracking-[0.15em]">Replying to comment</p>
+                              {toneProfile && (
+                                <span className="px-2 py-0.5 rounded-full text-[9px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
+                                  <Sparkles size={9} /> Voice Matched: {toneProfile.formality} · {toneProfile.emojiUsage} emojis
+                                </span>
+                              )}
+                            </div>
                             <button onClick={() => setReplyTarget(null)} className="p-1 rounded-lg hover:bg-white/[0.05] text-gray-600 transition"><X size={16} /></button>
                           </div>
                           {(() => { const vid = vidFor(replyTarget.videoId); return vid ? (
@@ -698,11 +830,184 @@ export default function AudiencePage() {
             {view === "engine" && (
               <motion.div key="engine" variants={stagger} initial="hidden" animate="visible" exit={{ opacity: 0 }} className="grid grid-cols-1 lg:grid-cols-5 gap-10">
                 <motion.div variants={fadeUp} className="lg:col-span-3 space-y-8">
+                  {/* ━━━ SMART REPLY TONE MATCHING — CREATOR VOICE PROFILE ━━━ */}
+                  <div className="p-6 rounded-2xl bg-gradient-to-br from-[#121136]/90 via-[#0d0d26]/80 to-[#07071a]/95 border border-purple-500/25 backdrop-blur-sm space-y-5 shadow-2xl relative overflow-hidden">
+                    <div className="absolute -right-10 -top-10 w-44 h-44 bg-purple-500/10 rounded-full blur-3xl pointer-events-none" />
+
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-purple-500/15 border border-purple-500/25 flex items-center justify-center text-purple-300 shrink-0">
+                          <Sparkles size={20} />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-base font-bold text-white tracking-tight">Smart Reply Tone Matching</h3>
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                              {toneProfile ? "Voice Cloned" : manualRepliesCount > 0 ? `${manualRepliesCount}/3 Synced` : "Voice Engine"}
+                            </span>
+                          </div>
+                          <p className="text-[12px] text-gray-400 mt-0.5">
+                            {toneProfile
+                              ? `Replies sound authentically like you — not a generic chatbot.`
+                              : `Analyzes your past replies to match your real voice, slang, emoji habits, and questions.`}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          onClick={() => setTestVoiceModalOpen(true)}
+                          className="px-3.5 py-2 rounded-xl bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/30 text-[12px] font-semibold text-purple-200 hover:text-white transition flex items-center gap-1.5 active:scale-95 shadow-sm"
+                        >
+                          <Eye size={13} /> Test Voice Clone
+                        </button>
+                        <button
+                          onClick={handleRefreshTone}
+                          disabled={isRefreshingTone}
+                          className="px-3.5 py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-[12px] font-medium text-gray-300 hover:text-white transition flex items-center gap-1.5 active:scale-95 disabled:opacity-50"
+                        >
+                          <RefreshCw size={13} className={isRefreshingTone ? "animate-spin" : ""} />
+                          {isRefreshingTone ? "Analyzing..." : "Re-learn Voice"}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Active Tone Profile Traits */}
+                    {toneProfile ? (
+                      <div className="space-y-4 pt-1">
+                        <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.04] text-[13px] text-purple-200/90 leading-relaxed italic">
+                          "{toneProfile.toneSummary}"
+                        </div>
+
+                        {/* Interactive characteristic badges */}
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                          {/* Formality badge */}
+                          <div
+                            onClick={cycleFormality}
+                            title="Click to cycle formality"
+                            className="p-3 rounded-xl bg-white/[0.02] hover:bg-white/[0.04] border border-white/[0.05] hover:border-purple-500/30 transition group cursor-pointer"
+                          >
+                            <p className="text-[10px] text-gray-500 uppercase tracking-wider font-mono">Formality</p>
+                            <p className="text-[13px] font-bold text-white capitalize mt-1 flex items-center justify-between">
+                              {toneProfile.formality}
+                              <ChevronRight size={12} className="text-gray-600 group-hover:text-purple-400 transition" />
+                            </p>
+                          </div>
+
+                          {/* Emoji Style badge */}
+                          <div
+                            onClick={cycleEmoji}
+                            title="Click to cycle emoji usage"
+                            className="p-3 rounded-xl bg-white/[0.02] hover:bg-white/[0.04] border border-white/[0.05] hover:border-purple-500/30 transition group cursor-pointer"
+                          >
+                            <p className="text-[10px] text-gray-500 uppercase tracking-wider font-mono">Emojis</p>
+                            <p className="text-[13px] font-bold text-white capitalize mt-1 flex items-center justify-between">
+                              {toneProfile.emojiUsage === 'none' ? 'None' : toneProfile.emojiUsage === 'sparse' ? 'Sparse (1/3)' : toneProfile.emojiUsage === 'moderate' ? 'Moderate 🙌' : 'Heavy 🔥'}
+                              <ChevronRight size={12} className="text-gray-600 group-hover:text-purple-400 transition" />
+                            </p>
+                          </div>
+
+                          {/* Reply Length */}
+                          <div
+                            onClick={cycleLength}
+                            title="Click to cycle average reply length"
+                            className="p-3 rounded-xl bg-white/[0.02] hover:bg-white/[0.04] border border-white/[0.05] hover:border-purple-500/30 transition group cursor-pointer"
+                          >
+                            <p className="text-[10px] text-gray-500 uppercase tracking-wider font-mono">Length</p>
+                            <p className="text-[13px] font-bold text-white capitalize mt-1 flex items-center justify-between">
+                              {toneProfile.avgReplyLength}
+                              <ChevronRight size={12} className="text-gray-600 group-hover:text-purple-400 transition" />
+                            </p>
+                          </div>
+
+                          {/* Follow-up Questions */}
+                          <div
+                            onClick={toggleFollowups}
+                            title="Click to toggle follow-up questions"
+                            className="p-3 rounded-xl bg-white/[0.02] hover:bg-white/[0.04] border border-white/[0.05] hover:border-purple-500/30 transition group cursor-pointer"
+                          >
+                            <p className="text-[10px] text-gray-500 uppercase tracking-wider font-mono">Questions</p>
+                            <p className="text-[13px] font-bold text-white mt-1 flex items-center justify-between">
+                              {toneProfile.asksFollowups ? 'Asks Back 💬' : 'Direct'}
+                              <ChevronRight size={12} className="text-gray-600 group-hover:text-purple-400 transition" />
+                            </p>
+                          </div>
+
+                          {/* Humor / Wit */}
+                          <div
+                            onClick={toggleHumor}
+                            title="Click to toggle humor"
+                            className="p-3 rounded-xl bg-white/[0.02] hover:bg-white/[0.04] border border-white/[0.05] hover:border-purple-500/30 transition group cursor-pointer"
+                          >
+                            <p className="text-[10px] text-gray-500 uppercase tracking-wider font-mono">Humor</p>
+                            <p className="text-[13px] font-bold text-white mt-1 flex items-center justify-between">
+                              {toneProfile.usesHumor ? 'Witty 😂' : 'Straightforward'}
+                              <ChevronRight size={12} className="text-gray-600 group-hover:text-purple-400 transition" />
+                            </p>
+                          </div>
+
+                          {/* Language */}
+                          <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+                            <p className="text-[10px] text-gray-500 uppercase tracking-wider font-mono">Language</p>
+                            <p className="text-[13px] font-bold text-white truncate mt-1">
+                              {toneProfile.languageStyle}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Expandable real sample replies */}
+                        {toneProfile.sampleReplies && toneProfile.sampleReplies.length > 0 && (
+                          <div className="pt-1">
+                            <button
+                              onClick={() => setShowVoiceSamples(!showVoiceSamples)}
+                              className="text-[11px] font-medium text-purple-400/80 hover:text-purple-300 transition flex items-center gap-1.5"
+                            >
+                              <ChevronRight size={12} className={`transition-transform ${showVoiceSamples ? "rotate-90" : ""}`} />
+                              {showVoiceSamples ? "Hide" : "View"} learned sample replies ({toneProfile.sampleReplies.length})
+                            </button>
+
+                            <AnimatePresence>
+                              {showVoiceSamples && (
+                                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="mt-3 space-y-2 overflow-hidden">
+                                  {toneProfile.sampleReplies.map((sample, idx) => (
+                                    <div key={idx} className="p-2.5 rounded-lg bg-black/40 border border-white/[0.03] text-[12px] text-gray-300 flex items-start gap-2">
+                                      <span className="text-[10px] text-purple-400 font-mono mt-0.5">#{idx + 1}</span>
+                                      <p className="leading-relaxed italic">"{sample}"</p>
+                                    </div>
+                                  ))}
+                                </motion.div>
+                              )}
+                            </AnimatePresence>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.04] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                        <div>
+                          <p className="text-[13px] text-gray-200 font-medium">Automatic voice learning in progress</p>
+                          <p className="text-[11px] text-gray-500 mt-0.5 leading-relaxed">
+                            {manualRepliesCount > 0
+                              ? `Found ${manualRepliesCount} manual reply. Reply to ${3 - manualRepliesCount} more comment(s) on YouTube or initialize a starter profile below.`
+                              : `Sync your YouTube comments or initialize your creator voice profile with one click.`}
+                          </p>
+                        </div>
+                        <button
+                          onClick={handleInitializeStarterTone}
+                          disabled={isUpdatingTone}
+                          className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-[12px] font-semibold transition flex items-center gap-1.5 shrink-0 active:scale-95 shadow-lg shadow-purple-600/20"
+                        >
+                          <Sparkles size={13} /> Initialize Voice Profile
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ━━━ ADDITIONAL GUIDELINES ━━━ */}
                   <div className="space-y-3">
-                    <p className="text-[11px] font-mono text-gray-600 uppercase tracking-[0.15em]">Your AI persona</p>
-                    <p className="text-[13px] text-gray-500 leading-relaxed">Tell the AI how you reply — more detail means more natural responses.</p>
-                    <textarea value={ctx} onChange={e => setCtx(e.target.value)} placeholder={`"Be warm. Use 1 emoji max. Sign off as Abdul."`}
-                      className="w-full bg-white/[0.02] border border-white/[0.04] rounded-xl p-4 text-[14px] text-white outline-none focus:border-white/[0.1] min-h-[110px] resize-none placeholder-gray-700 transition leading-relaxed" />
+                    <p className="text-[11px] font-mono text-gray-600 uppercase tracking-[0.15em]">Additional Guidelines & Sign-off</p>
+                    <p className="text-[13px] text-gray-500 leading-relaxed">Specific instructions layered on top of your voice clone (e.g. sign-off name, links, or boundaries).</p>
+                    <textarea value={ctx} onChange={e => setCtx(e.target.value)} placeholder={`"Sign off as Abdul. Mention link in description for project files."`}
+                      className="w-full bg-white/[0.02] border border-white/[0.04] rounded-xl p-4 text-[14px] text-white outline-none focus:border-white/[0.1] min-h-[90px] resize-none placeholder-gray-700 transition leading-relaxed" />
                     <p className="text-[10px] text-gray-700">{ctx.length} characters · {ctx.split(/\s+/).filter(Boolean).length} words</p>
                   </div>
                   <div className="space-y-1 py-4 border-y border-white/[0.03]">
@@ -723,6 +1028,29 @@ export default function AudiencePage() {
                 </motion.div>
 
                 <motion.div variants={fadeUp} className="lg:col-span-2 space-y-6">
+                  {/* Voice Match auto-reply indicator */}
+                  <div className="p-4 rounded-2xl bg-gradient-to-br from-purple-950/30 via-purple-900/10 to-transparent border border-purple-500/20 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-mono text-purple-400 uppercase tracking-wider font-bold flex items-center gap-1.5">
+                        <Sparkles size={12} className="text-purple-400" /> Voice Matching
+                      </span>
+                      <span className="text-[9px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold border border-emerald-500/30">
+                        {toneProfile ? "Active" : "Standard AI"}
+                      </span>
+                    </div>
+                    <p className="text-[12px] text-gray-400 leading-relaxed">
+                      {toneProfile
+                        ? `Auto-replies will automatically clone your ${toneProfile.formality} style with ${toneProfile.emojiUsage} emoji density.`
+                        : `No voice profile trained yet. Auto-replies will use standard creator persona.`}
+                    </p>
+                    <button
+                      onClick={() => setTestVoiceModalOpen(true)}
+                      className="w-full py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] text-[11px] text-purple-300 hover:text-white font-medium flex items-center justify-center gap-1.5 transition active:scale-95"
+                    >
+                      <Eye size={12} /> Test Voice Clone Simulator
+                    </button>
+                  </div>
+
                   <div className="p-5 rounded-2xl border border-dashed border-white/[0.06] space-y-4">
                     <p className="text-[11px] font-mono text-gray-600 uppercase tracking-[0.15em]">Run now</p>
                     <p className="text-[12px] text-gray-500">Reply to up to {maxR} unreplied comments{selectedVideoId ? " on this video" : " across all videos"}.</p>
@@ -774,6 +1102,166 @@ export default function AudiencePage() {
                 </motion.div>
               </motion.div>
             )}
+            </AnimatePresence>
+
+            {/* ━━━ VOICE CLONE SIMULATOR / COMPARISON MODAL ━━━ */}
+            <AnimatePresence>
+              {testVoiceModalOpen && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4"
+                  onClick={e => { if (e.target === e.currentTarget) setTestVoiceModalOpen(false); }}
+                >
+                  <motion.div
+                    initial={{ y: 25, opacity: 0, scale: 0.96 }}
+                    animate={{ y: 0, opacity: 1, scale: 1 }}
+                    exit={{ y: 25, opacity: 0, scale: 0.96 }}
+                    transition={{ type: "spring", damping: 28, stiffness: 350 }}
+                    className="w-full max-w-2xl bg-[#0c0c28] border border-purple-500/25 rounded-3xl shadow-2xl shadow-purple-950/50 overflow-hidden flex flex-col max-h-[90vh]"
+                  >
+                    {/* Header */}
+                    <div className="p-6 border-b border-white/[0.06] flex items-center justify-between bg-gradient-to-r from-purple-950/40 to-transparent">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-2xl bg-purple-500/20 border border-purple-500/30 flex items-center justify-center text-purple-300">
+                          <Sparkles size={20} />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-base font-bold text-white tracking-tight">Voice Clone Simulator</h3>
+                            <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                              Side-by-Side Test
+                            </span>
+                          </div>
+                          <p className="text-[12px] text-gray-400 mt-0.5">
+                            See the authentic difference between standard chatbot AI and your cloned voice.
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setTestVoiceModalOpen(false)}
+                        className="p-1.5 rounded-lg hover:bg-white/[0.06] text-gray-400 hover:text-white transition"
+                      >
+                        <X size={18} />
+                      </button>
+                    </div>
+
+                    {/* Body */}
+                    <div className="p-6 space-y-5 overflow-y-auto">
+                      {/* Preset quick test buttons */}
+                      <div>
+                        <p className="text-[10px] font-mono uppercase text-gray-500 tracking-wider mb-2">Try sample comments</p>
+                        <div className="flex flex-wrap gap-2">
+                          {[
+                            { l: "🔥 Gear Question", a: "Alex", c: "Bro this video was insane, what camera and lens setup did you use for the cinematic shots?" },
+                            { l: "❤️ Appreciation", a: "Sarah", c: "This tutorial literally saved my final university project. Thank you so much!" },
+                            { l: "😂 Playful Criticism", a: "Marcus", c: "Bro you look completely exhausted in this video lmao get some sleep 😂" },
+                            { l: "🇮🇳 Hinglish Fan", a: "Rohan", c: "Bhai next video kab aayegi? Studio setup tour please!" },
+                          ].map((p, i) => (
+                            <button
+                              key={i}
+                              onClick={() => { setTestCommentInput(p.c); setTestAuthorInput(p.a); }}
+                              className="px-2.5 py-1.5 rounded-xl bg-white/[0.03] hover:bg-purple-500/10 border border-white/[0.05] hover:border-purple-500/30 text-[11px] text-gray-300 hover:text-purple-300 transition active:scale-95 flex items-center gap-1.5"
+                            >
+                              {p.l}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Inputs */}
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                          <div className="sm:col-span-1">
+                            <label className="text-[11px] text-gray-400 font-medium block mb-1">Viewer Name</label>
+                            <input
+                              value={testAuthorInput}
+                              onChange={e => setTestAuthorInput(e.target.value)}
+                              className="w-full bg-white/[0.02] border border-white/[0.06] rounded-xl px-3 py-2 text-[13px] text-white outline-none focus:border-purple-500/40 transition"
+                            />
+                          </div>
+                          <div className="sm:col-span-3">
+                            <label className="text-[11px] text-gray-400 font-medium block mb-1">Viewer Comment</label>
+                            <input
+                              value={testCommentInput}
+                              onChange={e => setTestCommentInput(e.target.value)}
+                              className="w-full bg-white/[0.02] border border-white/[0.06] rounded-xl px-3 py-2 text-[13px] text-white outline-none focus:border-purple-500/40 transition"
+                            />
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={() => runVoiceTest()}
+                          disabled={isTestingTone || !testCommentInput.trim()}
+                          className="w-full py-3 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-600 hover:opacity-95 text-white font-bold text-[13px] flex items-center justify-center gap-2 transition disabled:opacity-40 active:scale-[0.99] shadow-lg shadow-purple-600/25"
+                        >
+                          {isTestingTone ? <RefreshCw size={15} className="animate-spin" /> : <Sparkles size={15} />}
+                          {isTestingTone ? "Generating Voice Comparison..." : "Compare Generic vs Cloned Voice"}
+                        </button>
+                      </div>
+
+                      {/* Comparison side by side */}
+                      {testResult && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                          {/* Generic bot */}
+                          <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/[0.06] space-y-3">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-mono text-gray-500 uppercase tracking-wider flex items-center gap-1.5">
+                                <Bot size={12} className="text-gray-500" /> Generic Chatbot
+                              </span>
+                              <span className="text-[9px] text-gray-600 font-medium">Standard AI</span>
+                            </div>
+                            <div className="bg-black/30 p-3.5 rounded-xl border border-white/[0.02] min-h-[90px] flex items-center">
+                              <p className="text-[13px] text-gray-400 leading-relaxed italic">
+                                "{testResult.genericReply}"
+                              </p>
+                            </div>
+                            <div className="text-[10px] text-rose-400/80 flex items-center gap-1.5 font-medium">
+                              <X size={12} className="text-rose-400" /> Robotic & impersonal — doesn't sound like you
+                            </div>
+                          </div>
+
+                          {/* Cloned voice */}
+                          <div className="p-4 rounded-2xl bg-purple-500/[0.05] border border-purple-500/30 space-y-3 shadow-lg shadow-purple-950/30 relative overflow-hidden">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-mono text-purple-300 uppercase tracking-wider flex items-center gap-1.5 font-bold">
+                                <Sparkles size={12} className="text-purple-400" /> Your Cloned Voice
+                              </span>
+                              <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
+                                <Check size={10} /> Authentic Match
+                              </span>
+                            </div>
+                            <div className="bg-black/50 p-3.5 rounded-xl border border-purple-500/20 min-h-[90px] flex items-center">
+                              <p className="text-[13px] text-white leading-relaxed font-medium">
+                                "{testResult.personalizedReply}"
+                              </p>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5 pt-1">
+                              <span className="px-2 py-0.5 rounded-md bg-purple-500/15 text-purple-300 text-[9px] font-semibold border border-purple-500/20 capitalize">
+                                {testResult.profile?.formality || "casual"} tone
+                              </span>
+                              <span className="px-2 py-0.5 rounded-md bg-purple-500/15 text-purple-300 text-[9px] font-semibold border border-purple-500/20">
+                                {testResult.profile?.emojiUsage || "moderate"} emojis
+                              </span>
+                              {testResult.profile?.asksFollowups && (
+                                <span className="px-2 py-0.5 rounded-md bg-purple-500/15 text-purple-300 text-[9px] font-semibold border border-purple-500/20">
+                                  asks back
+                                </span>
+                              )}
+                              {testResult.profile?.usesHumor && (
+                                <span className="px-2 py-0.5 rounded-md bg-purple-500/15 text-purple-300 text-[9px] font-semibold border border-purple-500/20">
+                                  witty / humor
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                </motion.div>
+              )}
             </AnimatePresence>
 
           </div>

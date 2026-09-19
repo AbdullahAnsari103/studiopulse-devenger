@@ -16,10 +16,13 @@ import SettingsPage from "@/pages/SettingsPage";
 import { CalendarPage } from "@/pages/CalendarPage";
 import AutopilotPage from "@/pages/AutopilotPage";
 import AudiencePage from "@/pages/AudiencePage";
+import VideoEditorPage from "@/pages/VideoEditorPage";
+import ViralClipsPage from "@/pages/ViralClipsPage";
 import { SettingsProvider } from "@/context/SettingsContext";
 
 import { useActivityTracker } from "@/hooks/useActivityTracker";
 import { GlobalNotificationCenter } from "@/components/GlobalNotificationCenter";
+import { GlobalCommandPalette } from "@/components/common/GlobalCommandPalette";
 
 function ActivityTrackerWrapper() {
   useActivityTracker();
@@ -67,11 +70,16 @@ export default function App() {
           <BrowserRouter>
             <ActivityTrackerWrapper />
             <GlobalNotificationCenter />
+            <GlobalCommandPalette />
             <Routes>
               {/* Public routes */}
               <Route path="/" element={<LandingPage />} />
               <Route path="/sign-in/*" element={<SignInPage />} />
               <Route path="/sign-up/*" element={<SignUpPage />} />
+
+              {/* ── Video Editor — standalone full-viewport, no sidebar ── */}
+              <Route path="/editor" element={<><SignedIn><VideoEditorPage /></SignedIn><SignedOut><RedirectToSignIn /></SignedOut></>} />
+              <Route path="/editor/:projectId" element={<><SignedIn><VideoEditorPage /></SignedIn><SignedOut><RedirectToSignIn /></SignedOut></>} />
 
               {/* Protected routes */}
               <Route
@@ -158,6 +166,19 @@ export default function App() {
                   <>
                     <SignedIn>
                       <MyVideosPage />
+                    </SignedIn>
+                    <SignedOut>
+                      <RedirectToSignIn />
+                    </SignedOut>
+                  </>
+                }
+              />
+              <Route
+                path="/viral-clips"
+                element={
+                  <>
+                    <SignedIn>
+                      <ViralClipsPage />
                     </SignedIn>
                     <SignedOut>
                       <RedirectToSignIn />

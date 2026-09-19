@@ -15,6 +15,7 @@ import {
   updateQueueItemMetadata,
   buildSchedule,
   getQueueItems,
+  getQueueItem,
   getQueueStats,
   cancelQueueItem,
   deleteQueueItem,
@@ -274,6 +275,60 @@ router.post("/bulk-upload", uploadVideos.array("videos", 50), async (req: Reques
 // ─── AI METADATA GENERATION ──────────────────────────────────────────────────
 
 /**
+ * POST /api/autopilot/queue/:id/generate-metadata
+ * Generate or re-generate optimized AI metadata for a single video item in <3s.
+ */
+router.post("/queue/:id/generate-metadata", async (req: Request, res: Response) => {
+  try {
+    const { userId, userContext } = req.body;
+    const { id } = req.params;
+
+    if (!userId || !id) {
+      res.status(400).json({ error: "userId and itemId are required" });
+      return;
+    }
+
+    const item = await getQueueItem(id);
+    if (!item || item.userId !== userId) {
+      res.status(404).json({ error: "Queue item not found" });
+      return;
+    }
+
+    console.log(`[Autopilot AI] Single item metadata generation requested for: ${item.fileName}`);
+
+    // Generate AI metadata immediately (<3s)
+    const aiResult = await generateVideoMetadata(
+      item.filePath,
+      item.fileName,
+      userContext || item.userContext || "",
+      userId,
+      item.id
+    );
+
+    const settings = await getUserSettings(userId);
+    if (settings.autoClassify) {
+      const aspectRatio = await detectAspectRatio(item.filePath);
+      aiResult.aspectRatio = aspectRatio;
+    }
+
+    const scheduleTime = item.scheduledAt || new Date(Date.now() + 3600000).toISOString();
+    await updateQueueItemMetadata(item.id, aiResult, scheduleTime, "ai");
+
+    const updated = await getQueueItem(id);
+
+    res.json({
+      success: true,
+      item: updated,
+      metadata: aiResult,
+    });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to generate metadata";
+    console.error("[Autopilot] Single generate-metadata error:", message);
+    res.status(500).json({ error: message });
+  }
+});
+
+/**
  * POST /api/autopilot/generate-metadata
  * Trigger AI metadata generation for a batch of queued videos.
  */
@@ -285,8 +340,9 @@ router.post("/generate-metadata", async (req: Request, res: Response) => {
       return;
     }
 
-    // Get all pending items in this batch
-    const items = await getQueueItems(userId, { batchId, status: "pending" });
+    // Get all pending or ai_processing items in this batch
+    const allBatchItems = await getQueueItems(userId, { batchId });
+    const items = allBatchItems.filter(i => i.status === "pending" || i.status === "ai_processing");
     if (items.length === 0) {
       res.status(404).json({ error: "No pending items found for this batch" });
       return;

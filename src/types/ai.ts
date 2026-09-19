@@ -1,6 +1,14 @@
 // ─── Studio AI TypeScript Types ───
 
 export type MessageRole = "user" | "assistant" | "system";
+export type AIMode = "normal" | "web";
+
+export interface WebSource {
+  title: string;
+  url: string;
+  snippet?: string;
+  domain?: string;
+}
 
 export interface AIMessage {
   id: string;
@@ -10,6 +18,8 @@ export interface AIMessage {
   content: string;
   metadata?: string;
   created_at: string;
+  sources?: WebSource[];
+  isWebSearch?: boolean;
 }
 
 export interface AIConversation {
@@ -31,6 +41,11 @@ export interface StreamingMessage {
   role: "assistant";
   content: string;
   isStreaming: boolean;
+  sources?: WebSource[];
+  isSearchingWeb?: boolean;
+  webSearchQuery?: string;
+  researchStage?: string;
+  researchMessage?: string;
 }
 
 export interface ChatState {
@@ -40,6 +55,7 @@ export interface ChatState {
   streamingMessage: StreamingMessage | null;
   isLoading: boolean;
   isSending: boolean;
+  aiMode: AIMode;
 }
 
 // SSE Event types from the backend
@@ -49,6 +65,17 @@ export interface SSEConversationIdEvent {
 
 export interface SSEStartEvent {
   intent: string;
+  isWebSearch?: boolean;
+  sources?: WebSource[];
+}
+
+export interface SSEWebSearchEvent {
+  status: string;
+  query: string;
+}
+
+export interface SSEWebSourcesEvent {
+  sources: WebSource[];
 }
 
 export interface SSEChunkEvent {
@@ -57,8 +84,12 @@ export interface SSEChunkEvent {
 
 export interface SSEDoneEvent {
   messageId: string;
+  sources?: WebSource[];
 }
 
 export interface SSEErrorEvent {
   error: string;
+  reason?: string;
+  message?: string;
 }
+

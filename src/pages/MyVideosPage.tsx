@@ -14,7 +14,8 @@ import {
   TrendingUp, Calendar, Trash2, ExternalLink, Copy, Sparkles, Check,
   X, AlertTriangle, BarChart3, Settings, Shield, Globe, Lock, Unlock,
   Layers, RefreshCw, CheckCheck, ChevronDown, Sliders, Menu, Bot,
-  Crown, ArrowUpDown, LayoutDashboard, Link2, Users, UsersRound, DollarSign, CalendarDays
+  Crown, ArrowUpDown, LayoutDashboard, Link2, Users, UsersRound, DollarSign, CalendarDays,
+  LayoutGrid, List
 } from "lucide-react";
 import { useMyVideos } from "@/hooks/useMyVideos";
 import { usePlatformStatus } from "@/hooks/usePlatforms";
@@ -143,8 +144,7 @@ export default function MyVideosPage() {
     }
   }, [connectedPlatforms.youtube]);
 
-  // ─── State Modals & Drawers ─────────────────────────────────────────────────
-
+  const [viewMode, setViewMode] = useState<"table" | "grid">("table");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [editingVideo, setEditingVideo] = useState<any>(null);
@@ -488,8 +488,31 @@ export default function MyVideosPage() {
               })}
             </div>
 
-            {/* Sort Controls */}
-            <div className="flex items-center justify-end">
+            {/* Sort & View Mode Controls */}
+            <div className="flex items-center gap-2">
+              {/* View Mode Toggle (Always Visible) */}
+              <div className="flex items-center bg-[#121226] border border-[#252545] rounded-xl p-0.5">
+                <button
+                  onClick={() => setViewMode("table")}
+                  className={`p-1.5 rounded-lg transition-all ${
+                    viewMode === "table" ? "bg-purple-600 text-white shadow-sm" : "text-gray-400 hover:text-white"
+                  }`}
+                  title="Table View"
+                >
+                  <List className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={() => setViewMode("grid")}
+                  className={`p-1.5 rounded-lg transition-all ${
+                    viewMode === "grid" ? "bg-purple-600 text-white shadow-sm" : "text-gray-400 hover:text-white"
+                  }`}
+                  title="Grid View"
+                >
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              {/* Sort Dropdown */}
               <div className="flex items-center gap-1.5 bg-[#121226] border border-[#252545] rounded-xl px-2.5 py-1 text-[11.5px]">
                 <ArrowUpDown className="w-3.5 h-3.5 text-gray-400" />
                 <select
@@ -535,7 +558,7 @@ export default function MyVideosPage() {
             </motion.div>
           )}
 
-          {/* ── Main Data View (Desktop Table / Mobile Premium Cards) ── */}
+          {/* ── Main Data View (Table View OR Grid View - 100% Reliable at All Resolutions) ── */}
           <div className="bg-[#0d0d1e]/90 backdrop-blur-sm border border-[#1e1e35] rounded-2xl overflow-hidden shadow-2xl">
             {isLoading ? (
               <div className="py-16 text-center space-y-3">
@@ -561,176 +584,164 @@ export default function MyVideosPage() {
               </div>
             ) : (
               <>
-                {/* Desktop Table View */}
-                <div className="hidden lg:block overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="border-b border-[#1c1c38] bg-[#090918] text-[11px] font-extrabold uppercase tracking-wider text-gray-400">
-                        <th className="py-3.5 px-4 w-10">
-                          <input
-                            type="checkbox"
-                            checked={allSelected}
-                            onChange={() => toggleSelectAll(videos.map(v => v.videoId))}
-                            className="rounded border-[#252545] bg-[#121226] text-purple-600 focus:ring-0 cursor-pointer"
-                          />
-                        </th>
-                        <th className="py-3.5 px-4">Video</th>
-                        <th className="py-3.5 px-4">Visibility</th>
-                        <th className="py-3.5 px-4">Date</th>
-                        <th className="py-3.5 px-4">Views</th>
-                        <th className="py-3.5 px-4">Likes</th>
-                        <th className="py-3.5 px-4">Comments</th>
-                        <th className="py-3.5 px-4">Status</th>
-                        <th className="py-3.5 px-4 text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[#181832] text-[13px]">
-                      {videos.map((video) => {
-                        const isSelected = selectedVideoIds.includes(video.videoId);
-                        const isPrivate = video.visibility === "private";
-                        const isUnlisted = video.visibility === "unlisted";
-                        const isScheduled = video.visibility === "scheduled" || video.status === "scheduled";
-                        const isDeleted = video.status === "deleted";
+                {viewMode === "table" ? (
+                  /* ── 1. Table View (Clean, Horizontal Scrollable Table) ── */
+                  <div className="w-full overflow-x-auto custom-scrollbar">
+                <table className="w-full text-left border-collapse min-w-[650px]">
+                  <thead>
+                    <tr className="border-b border-[#1c1c38] bg-[#090918] text-[11px] font-extrabold uppercase tracking-wider text-gray-400">
+                      <th className="py-3.5 px-4 w-10">
+                        <input
+                          type="checkbox"
+                          checked={allSelected}
+                          onChange={() => toggleSelectAll(videos.map(v => v.videoId))}
+                          className="rounded border-[#252545] bg-[#121226] text-purple-600 focus:ring-0 cursor-pointer"
+                        />
+                      </th>
+                      <th className="py-3.5 px-4">Video</th>
+                      <th className="py-3.5 px-4">Visibility</th>
+                      <th className="py-3.5 px-4">Date</th>
+                      <th className="py-3.5 px-4">Views</th>
+                      <th className="py-3.5 px-4">Likes</th>
+                      <th className="py-3.5 px-4">Comments</th>
+                      <th className="py-3.5 px-4">Status</th>
+                      <th className="py-3.5 px-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#181832] text-[13px]">
+                    {videos.map((video) => {
+                      const isSelected = selectedVideoIds.includes(video.videoId);
+                      const isPrivate = video.visibility === "private";
+                      const isUnlisted = video.visibility === "unlisted";
+                      const isScheduled = video.visibility === "scheduled" || video.status === "scheduled";
+                      const isDeleted = video.status === "deleted";
 
-                        return (
-                          <tr
-                            key={video.id}
-                            className={`hover:bg-white/[0.02] transition-colors group ${isSelected ? "bg-purple-600/10" : ""}`}
-                          >
-                            <td className="py-4 px-4">
-                              <input
-                                type="checkbox"
-                                checked={isSelected}
-                                onChange={() => toggleSelectVideo(video.videoId)}
-                                className="rounded border-[#252545] bg-[#121226] text-purple-600 focus:ring-0 cursor-pointer"
-                              />
-                            </td>
-                            <td className="py-4 px-4 min-w-[280px]">
-                              <div className="flex items-center gap-3">
-                                <div className="relative w-24 h-14 rounded-xl overflow-hidden bg-[#14142a] border border-white/10 flex-shrink-0 group/thumb">
-                                  <img src={video.thumbnail} alt="" onError={handleImageError} className="w-full h-full object-cover group-hover/thumb:scale-105 transition-transform duration-300" />
-                                  <span className="absolute bottom-1 right-1 bg-black/80 text-white text-[9.5px] font-mono px-1 rounded">
-                                    {video.duration}
-                                  </span>
-                                </div>
-                                <div className="min-w-0">
-                                  <p className="text-white font-bold text-[13px] leading-snug line-clamp-1 group-hover:text-purple-300 transition-colors">
-                                    {video.title}
-                                  </p>
-                                  <span className="text-[10px] text-gray-400 bg-[#16162e] px-2 py-0.5 rounded-full border border-white/5 mt-1 inline-block">
-                                    {video.category}
-                                  </span>
-                                </div>
+                      return (
+                        <tr
+                          key={video.id}
+                          className={`hover:bg-white/[0.02] transition-colors group ${isSelected ? "bg-purple-600/10" : ""}`}
+                        >
+                          <td className="py-4 px-4">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => toggleSelectVideo(video.videoId)}
+                              className="rounded border-[#252545] bg-[#121226] text-purple-600 focus:ring-0 cursor-pointer"
+                            />
+                          </td>
+                          <td className="py-4 px-4 min-w-[260px]">
+                            <div className="flex items-center gap-3">
+                              <div className="relative w-24 h-14 rounded-xl overflow-hidden bg-[#14142a] border border-white/10 flex-shrink-0 group/thumb">
+                                <img src={video.thumbnail || THUMB_FALLBACK} alt="" onError={handleImageError} className="w-full h-full object-cover group-hover/thumb:scale-105 transition-transform duration-300" />
+                                <span className="absolute bottom-1 right-1 bg-black/80 text-white text-[9.5px] font-mono px-1 rounded">
+                                  {video.duration}
+                                </span>
                               </div>
-                            </td>
-                            <td className="py-4 px-4 whitespace-nowrap">
-                              <button
-                                onClick={() => handleChangeVisibilityQuick(video, isPrivate ? "public" : "private")}
-                                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold border transition-all cursor-pointer hover:scale-105 ${
-                                  isDeleted ? "bg-red-500/10 text-red-400 border-red-500/25" :
-                                  isUnlisted ? "bg-amber-500/10 text-amber-400 border-amber-500/25" :
-                                  isScheduled ? "bg-cyan-500/10 text-cyan-400 border-cyan-500/25" :
-                                  isPrivate ? "bg-purple-500/10 text-purple-400 border-purple-500/25" :
-                                  "bg-emerald-500/10 text-emerald-400 border-emerald-500/25"
-                                }`}
-                              >
-                                {isDeleted ? <Trash2 className="w-3 h-3" /> : isPrivate ? <Lock className="w-3 h-3" /> : <Globe className="w-3 h-3" />}
-                                <span className="capitalize">{isDeleted ? "Deleted" : video.visibility}</span>
-                              </button>
-                            </td>
-                            <td className="py-4 px-4 whitespace-nowrap">
-                              <p className="text-white text-[12.5px] font-semibold">{formatDate(video.publishedAt)}</p>
-                            </td>
-                            <td className="py-4 px-4 whitespace-nowrap font-bold text-white">{fmt(video.views)}</td>
-                            <td className="py-4 px-4 whitespace-nowrap font-semibold text-gray-300">{fmt(video.likes)}</td>
-                            <td className="py-4 px-4 whitespace-nowrap font-semibold text-gray-300">{fmt(video.comments)}</td>
-                            <td className="py-4 px-4 whitespace-nowrap">
-                              <span className={`text-[11.5px] font-bold px-2.5 py-0.5 rounded-full border ${
-                                isDeleted ? "text-red-400 bg-red-500/10 border-red-500/20" :
-                                isPrivate ? "text-purple-400 bg-purple-500/10 border-purple-500/20" :
-                                "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
-                              }`}>
-                                {isDeleted ? "Deleted" : isPrivate ? "Private" : "Published"}
-                              </span>
-                            </td>
-                            <td className="py-4 px-4 whitespace-nowrap text-right">
-                              <div className="flex items-center justify-end gap-1">
-                                <a href={video.url} target="_blank" rel="noopener noreferrer" className="p-1.5 text-gray-400 hover:text-white rounded-lg"><Play className="w-4 h-4" /></a>
-                                <button onClick={() => handleOpenEdit(video)} className="p-1.5 text-gray-400 hover:text-white rounded-lg"><Edit3 className="w-4 h-4" /></button>
-                                <button onClick={() => handleOpenAnalytics(video)} className="p-1.5 text-gray-400 hover:text-purple-400 rounded-lg"><BarChart3 className="w-4 h-4" /></button>
-                                <button onClick={() => handleAiDiagnose(video)} className="p-1.5 text-gray-400 hover:text-amber-400 rounded-lg"><Sparkles className="w-4 h-4" /></button>
-                                <button onClick={() => setDeletingVideoId(video.videoId)} className="p-1.5 text-gray-400 hover:text-red-400 rounded-lg"><Trash2 className="w-4 h-4" /></button>
+                              <div className="min-w-0">
+                                <p className="text-white font-bold text-[13px] leading-snug line-clamp-1 group-hover:text-purple-300 transition-colors">
+                                  {video.title}
+                                </p>
+                                <span className="text-[10px] text-gray-400 bg-[#16162e] px-2 py-0.5 rounded-full border border-white/5 mt-1 inline-block">
+                                  {video.category}
+                                </span>
                               </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-
-                {/* Mobile Responsive Cards (Pixel-Perfect Mobile Redesign) */}
-                <div className="lg:hidden divide-y divide-[#181832]">
-                  {videos.map((video) => {
-                    const isPrivate = video.visibility === "private";
-                    const isUnlisted = video.visibility === "unlisted";
-                    const isDeleted = video.status === "deleted";
-
-                    return (
-                      <div key={video.id} className="p-3.5 space-y-3 bg-[#0a0a1a]/70">
-                        {/* Top: Thumbnail & Title */}
-                        <div className="flex items-start gap-3">
-                          <div className="relative w-28 h-16 rounded-xl overflow-hidden bg-[#14142a] flex-shrink-0 border border-white/10">
-                            <img src={video.thumbnail} alt="" className="w-full h-full object-cover" />
-                            <span className="absolute bottom-1 right-1 bg-black/80 text-white text-[9px] font-mono px-1 rounded">
-                              {video.duration}
-                            </span>
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-white font-bold text-[13px] line-clamp-2 leading-snug">{video.title}</p>
-                            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                              <span className="text-[10px] text-purple-300 bg-purple-500/15 px-2 py-0.5 rounded-full border border-purple-500/30">
-                                {video.category}
-                              </span>
-                              <button
-                                onClick={() => handleChangeVisibilityQuick(video, isPrivate ? "public" : "private")}
-                                className={`text-[10px] font-bold px-2 py-0.5 rounded-full border capitalize ${
-                                  isDeleted ? "text-red-400 bg-red-500/10 border-red-500/20" :
-                                  isPrivate ? "text-purple-300 bg-purple-500/10 border-purple-500/20" :
-                                  "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
-                                }`}
-                              >
-                                {isDeleted ? "Deleted" : video.visibility}
-                              </button>
                             </div>
+                          </td>
+                          <td className="py-4 px-4 whitespace-nowrap">
+                            <button
+                              onClick={() => handleChangeVisibilityQuick(video, isPrivate ? "public" : "private")}
+                              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold border transition-all cursor-pointer hover:scale-105 ${
+                                isDeleted ? "bg-red-500/10 text-red-400 border-red-500/25" :
+                                isUnlisted ? "bg-amber-500/10 text-amber-400 border-amber-500/25" :
+                                isScheduled ? "bg-cyan-500/10 text-cyan-400 border-cyan-500/25" :
+                                isPrivate ? "bg-purple-500/10 text-purple-400 border-purple-500/25" :
+                                "bg-emerald-500/10 text-emerald-400 border-emerald-500/25"
+                              }`}
+                            >
+                              {isDeleted ? <Trash2 className="w-3 h-3" /> : isPrivate ? <Lock className="w-3 h-3" /> : <Globe className="w-3 h-3" />}
+                              <span className="capitalize">{isDeleted ? "Deleted" : video.visibility}</span>
+                            </button>
+                          </td>
+                          <td className="py-4 px-4 whitespace-nowrap">
+                            <p className="text-white text-[12.5px] font-semibold">{formatDate(video.publishedAt)}</p>
+                          </td>
+                          <td className="py-4 px-4 whitespace-nowrap font-bold text-white">{fmt(video.views)}</td>
+                          <td className="py-4 px-4 whitespace-nowrap font-semibold text-gray-300">{fmt(video.likes)}</td>
+                          <td className="py-4 px-4 whitespace-nowrap font-semibold text-gray-300">{fmt(video.comments)}</td>
+                          <td className="py-4 px-4 whitespace-nowrap">
+                            <span className={`text-[11.5px] font-bold px-2.5 py-0.5 rounded-full border ${
+                              isDeleted ? "text-red-400 bg-red-500/10 border-red-500/20" :
+                              isPrivate ? "text-purple-400 bg-purple-500/10 border-purple-500/20" :
+                              "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
+                            }`}>
+                              {isDeleted ? "Deleted" : isPrivate ? "Private" : "Published"}
+                            </span>
+                          </td>
+                          <td className="py-4 px-4 whitespace-nowrap text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              <a href={video.url || `https://youtube.com/watch?v=${video.videoId}`} target="_blank" rel="noopener noreferrer" className="p-1.5 text-gray-400 hover:text-white rounded-lg" title="Watch"><Play className="w-4 h-4" /></a>
+                              <button onClick={() => handleOpenEdit(video)} className="p-1.5 text-gray-400 hover:text-white rounded-lg" title="Edit Metadata"><Edit3 className="w-4 h-4" /></button>
+                              <button onClick={() => handleOpenAnalytics(video)} className="p-1.5 text-gray-400 hover:text-purple-400 rounded-lg" title="Analytics"><BarChart3 className="w-4 h-4" /></button>
+                              <button onClick={() => handleAiDiagnose(video)} className="p-1.5 text-gray-400 hover:text-amber-400 rounded-lg" title="AI Diagnosis"><Sparkles className="w-4 h-4" /></button>
+                              <button onClick={() => setDeletingVideoId(video.videoId)} className="p-1.5 text-gray-400 hover:text-red-400 rounded-lg" title="Delete"><Trash2 className="w-4 h-4" /></button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              /* ── 2. Grid View (Modern Responsive Video Cards) ── */
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 p-4">
+                {videos.map((video) => {
+                  const isSelected = selectedVideoIds.includes(video.videoId);
+
+                  return (
+                    <div
+                      key={video.id}
+                      className={`bg-[#080816] border rounded-2xl overflow-hidden hover:border-purple-500/50 transition-all flex flex-col justify-between ${
+                        isSelected ? "border-purple-500 ring-1 ring-purple-500" : "border-[#1e1e35]"
+                      }`}
+                    >
+                      <div className="relative aspect-video bg-[#121226] overflow-hidden group">
+                        <img src={video.thumbnail || THUMB_FALLBACK} alt="" onError={handleImageError} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                        <span className="absolute bottom-2 right-2 bg-black/80 text-white text-[10px] font-mono px-1.5 py-0.5 rounded">
+                          {video.duration}
+                        </span>
+                        <button
+                          onClick={() => toggleSelectVideo(video.videoId)}
+                          className="absolute top-2 left-2 p-1 rounded bg-black/60 hover:bg-purple-600 transition-colors"
+                        >
+                          <input type="checkbox" checked={isSelected} readOnly className="rounded text-purple-600 cursor-pointer pointer-events-none" />
+                        </button>
+                      </div>
+                      <div className="p-3.5 space-y-2 flex-1 flex flex-col justify-between">
+                        <div>
+                          <p className="text-white font-bold text-[13px] line-clamp-2 leading-snug">{video.title}</p>
+                          <div className="flex items-center justify-between text-[11px] text-gray-400 mt-2">
+                            <span>{formatDate(video.publishedAt)}</span>
+                            <span className="text-purple-300 bg-purple-500/10 px-2 py-0.5 rounded-md border border-purple-500/20">{video.category}</span>
                           </div>
                         </div>
-
-                        {/* Bottom Row: Metrics & Quick Action Buttons */}
-                        <div className="flex items-center justify-between pt-2 border-t border-white/5">
-                          <div className="flex items-center gap-3 text-gray-300 text-[11.5px] font-medium">
-                            <span className="flex items-center gap-1"><Eye className="w-3.5 h-3.5 text-cyan-400" /> {fmt(video.views)}</span>
-                            <span className="flex items-center gap-1"><ThumbsUp className="w-3.5 h-3.5 text-amber-400" /> {fmt(video.likes)}</span>
+                        <div className="pt-2 border-t border-white/5 flex items-center justify-between">
+                          <div className="flex items-center gap-3 text-[11px] text-gray-300">
+                            <span className="flex items-center gap-1"><Eye className="w-3 h-3 text-cyan-400" /> {fmt(video.views)}</span>
+                            <span className="flex items-center gap-1"><ThumbsUp className="w-3 h-3 text-amber-400" /> {fmt(video.likes)}</span>
                           </div>
                           <div className="flex items-center gap-1">
-                            <button onClick={() => handleOpenEdit(video)} className="p-1.5 bg-[#14142a] border border-[#252545] rounded-xl text-gray-300" title="Edit">
-                              <Edit3 className="w-3.5 h-3.5" />
-                            </button>
-                            <button onClick={() => handleOpenAnalytics(video)} className="p-1.5 bg-purple-500/10 border border-purple-500/30 rounded-xl text-purple-300" title="Analytics">
-                              <BarChart3 className="w-3.5 h-3.5" />
-                            </button>
-                            <button onClick={() => handleAiDiagnose(video)} className="p-1.5 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-300" title="AI Diagnosis">
-                              <Sparkles className="w-3.5 h-3.5" />
-                            </button>
-                            <button onClick={() => setDeletingVideoId(video.videoId)} className="p-1.5 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400" title="Delete">
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            <button onClick={() => handleOpenEdit(video)} className="p-1 text-gray-400 hover:text-white rounded" title="Edit Metadata"><Edit3 className="w-3.5 h-3.5" /></button>
+                            <button onClick={() => handleOpenAnalytics(video)} className="p-1 text-gray-400 hover:text-purple-400 rounded" title="Analytics"><BarChart3 className="w-3.5 h-3.5" /></button>
+                            <button onClick={() => setDeletingVideoId(video.videoId)} className="p-1 text-gray-400 hover:text-red-400 rounded" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
                           </div>
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
 
                 {/* Bottom Pagination Bar */}
                 <div className="flex items-center justify-between px-4 py-3 bg-[#090918] border-t border-[#1a1a38] text-[12px] text-gray-400">

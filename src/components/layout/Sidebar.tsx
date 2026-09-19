@@ -9,7 +9,8 @@ import { useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Upload, Play, Bot, BarChart3, DollarSign,
   UsersRound, Users, CalendarDays, Link2, Settings, Plus,
-  Crown, ChevronRight, ChevronDown, X, Layers, Sparkles, Rocket
+  Crown, ChevronRight, ChevronDown, X, Layers, Sparkles, Rocket, Scissors,
+  Search,
 } from "lucide-react";
 import { usePlatformStatus, useDirectConnectPlatform } from "@/hooks/usePlatforms";
 import { useSettings } from "@/context/SettingsContext";
@@ -81,7 +82,9 @@ export const NAV_ITEMS: NavItemConfig[] = [
   { id: "dashboard", icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
   { id: "analytics", icon: BarChart3, label: "Analytics", path: "/analytics" },
   { id: "my-videos", icon: Play, label: "My Videos", path: "/my-videos" },
+  { id: "viral-clips", icon: Sparkles, label: "AI Viral Clips", path: "/viral-clips", badge: "AI" },
   { id: "upload-center", icon: Upload, label: "Upload Center", path: "/upload-center" },
+  { id: "video-editor", icon: Scissors, label: "Video Editor", path: "/editor/new", badge: "NEW" },
   { id: "autopilot", icon: Rocket, label: "Autopilot Queue", path: "/autopilot", badge: "NEW" },
   { id: "connected-platforms", icon: Link2, label: "Connected Platforms", path: "/content-studio" },
   { id: "collaborations", icon: Users, label: "Collaborations", path: "/collaborations" },
@@ -96,9 +99,19 @@ export interface SidebarProps {
   activePage?: string;
   open?: boolean;
   onClose?: () => void;
+  collapsible?: boolean;
+  isCollapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
-export default function Sidebar({ activePage = "/dashboard", open = false, onClose }: SidebarProps) {
+export default function Sidebar({
+  activePage = "/dashboard",
+  open = false,
+  onClose,
+  collapsible = false,
+  isCollapsed = false,
+  onToggleCollapse,
+}: SidebarProps) {
   const { user } = useUser();
   const navigate = useNavigate();
   const { settings, t } = useSettings();
@@ -190,11 +203,17 @@ export default function Sidebar({ activePage = "/dashboard", open = false, onClo
       )}
 
       <aside
-        className={`fixed lg:static inset-y-0 ${isRight ? "right-0 border-l border-r-0 order-last" : "left-0 border-r"} z-50 lg:z-auto w-[220px] flex-shrink-0 flex flex-col bg-[#08080f] border-[#14142a] transition-transform duration-300 ${
-          isMobileOpen ? "translate-x-0" : isRight ? "translate-x-full lg:translate-x-0" : "-translate-x-full lg:translate-x-0"
+        className={`fixed lg:static inset-y-0 ${isRight ? "right-0 border-l border-r-0 order-last" : "left-0 border-r"} z-50 lg:z-auto flex-shrink-0 flex flex-col bg-[#08080f] border-[#14142a] transition-all duration-300 ${
+          collapsible && isCollapsed
+            ? "-translate-x-full lg:-translate-x-full w-0 lg:w-0 overflow-hidden opacity-0 border-none pointer-events-none"
+            : isMobileOpen
+            ? "translate-x-0 w-[220px] opacity-100"
+            : isRight
+            ? "translate-x-full lg:translate-x-0 w-[220px] opacity-100"
+            : "-translate-x-full lg:translate-x-0 w-[220px] opacity-100"
         }`}
       >
-        {/* Logo */}
+        {/* Logo & Close Button */}
         <div className="flex items-center gap-2.5 px-5 py-5 border-b border-[#14142a]">
           <div className="relative cursor-pointer flex items-center" onClick={() => navigate("/dashboard")}>
             <img src="/image.png" alt="StudioPulse" className="w-8 h-8 object-contain transition-transform hover:scale-105" />
@@ -206,16 +225,37 @@ export default function Sidebar({ activePage = "/dashboard", open = false, onClo
           >
             Studio<span className="text-purple-400 font-extrabold">Pulse</span>
           </span>
+          
+          {(collapsible || isMobileOpen) && (
+            <button
+              onClick={collapsible && onToggleCollapse ? onToggleCollapse : handleClose}
+              className="ml-auto p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-all"
+              title="Close sidebar"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+
+        {/* Quick Command Palette Button */}
+        <div className="px-3 pt-3 pb-1">
           <button
-            onClick={handleClose}
-            className="ml-auto p-1 text-gray-500 hover:text-white lg:hidden"
+            onClick={() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: true }))}
+            className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.05] hover:border-purple-500/30 text-gray-400 hover:text-white transition group active:scale-[0.98]"
+            title="Search & Commands (Ctrl+K)"
           >
-            <X className="w-4 h-4" />
+            <div className="flex items-center gap-2 text-[12px]">
+              <Search size={13} className="text-gray-500 group-hover:text-purple-400 transition" />
+              <span>Search...</span>
+            </div>
+            <kbd className="px-1.5 py-0.5 rounded bg-white/[0.04] border border-white/[0.08] text-[9px] font-mono text-gray-500 group-hover:text-gray-300">
+              Ctrl K
+            </kbd>
           </button>
         </div>
 
         {/* Nav list */}
-        <nav className="flex-1 overflow-y-auto py-4 custom-scrollbar">
+        <nav className="flex-1 overflow-y-auto py-3 custom-scrollbar">
           <ul className="space-y-0.5 px-3">
             {NAV_ITEMS.map((item) => {
               const isActive = checkIsActive(item);

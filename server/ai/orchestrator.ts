@@ -17,12 +17,18 @@ import { streamGeminiResponse, callGemini, AllKeysExhaustedError, type GeminiMes
 import { getSystemPrompt, TITLE_GENERATION_PROMPT } from "./system-prompt";
 import { fetchDetailedAnalytics } from "../integrations/youtube/detailed-analytics";
 import { getUserBrainContext, syncUserBrain } from "./user-brain";
+import { getUserBehaviorProfile } from "../autopilot/behavior-engine";
+import { extractUrls, decideWebSearchNeed, type WebSource } from "./web-agent";
+import { executeResearchAgent } from "./research/research-agent";
+import { sanitizeAnswerWithDossier } from "./research/answer-sanitizer";
+import type { EvidenceDossier } from "./research/types";
 
 export interface ChatRequest {
   userId: string;
   conversationId: string | null;
   message: string;
   userName: string;
+  aiMode?: "normal" | "web";
 }
 
 /**
@@ -30,7 +36,7 @@ export interface ChatRequest {
  * Writes SSE events to the Express response.
  */
 export async function processChat(req: ChatRequest, res: Response): Promise<void> {
-  const { userId, message, userName } = req;
+  const { userId, message, userName, aiMode } = req;
   let { conversationId } = req;
 
   try {
@@ -58,15 +64,70 @@ export async function processChat(req: ChatRequest, res: Response): Promise<void
 
     // 3. Detect intent
     const intent = detectIntent(message);
-    console.log(`[Orchestrator] Intent: ${intent} for message: "${message.substring(0, 80)}..."`);
+    console.log(`[Orchestrator] Intent: ${intent} | Mode: ${aiMode || 'normal'} for message: "${message.substring(0, 80)}..."`);
 
-    // 4. Always Load User AI Personal Brain
-    const userBrain = await getUserBrainContext(userId);
+    // 4. Always Load User AI Personal Brain & Behavior Profile
+    let behaviorProfile: any = null;
+    let userBrain: any;
+    try {
+      [userBrain, behaviorProfile] = await Promise.all([
+        getUserBrainContext(userId),
+        getUserBehaviorProfile(userId).catch(() => null),
+      ]);
+    } catch {
+      userBrain = await getUserBrainContext(userId).catch(() => ({ hasYouTube: false, summary: "" }));
+    }
+
     let hasYouTube = userBrain.hasYouTube;
     let hasYouTubeData = userBrain.hasYouTube;
     let contextBlock = "";
+    let webSources: WebSource[] = [];
 
-    // 5. Detect whether the question requires deep live platform analytics
+    let behaviorSummary = "";
+    if (behaviorProfile && behaviorProfile.totalUploads > 0) {
+      behaviorSummary = `Creator Habits: Typically publishes around ${behaviorProfile.avgUploadHour}:00 UTC. Total uploads: ${behaviorProfile.totalUploads}. Preferred format: ${behaviorProfile.suggestedVideoType}. Primary platform: ${behaviorProfile.suggestedPlatforms?.[0] || "YouTube"}.`;
+    }
+
+    // 5. Intelligent Web Search Execution
+    const hasUrls = extractUrls(message).length > 0;
+    const searchDecision = await decideWebSearchNeed(message, aiMode);
+    const shouldSearchWeb = hasUrls || searchDecision.needsWebSearch || intent === "web_search";
+
+    let activeDossier: EvidenceDossier | null = null;
+
+    if (shouldSearchWeb) {
+      const activeQuery = searchDecision.searchQuery || message.slice(0, 80);
+      console.log(`[Orchestrator] 🔬 Smart Research Agent Activated for: "${activeQuery}"`);
+      sendSSE(res, "web_search", { stage: "searching_web", status: "searching", query: activeQuery, message: "Searching the web…" });
+
+      try {
+        const researchResult = await executeResearchAgent(
+          message,
+          (progress) => {
+            sendSSE(res, "web_search", {
+              stage: progress.stage,
+              status: progress.stage,
+              message: progress.message,
+              detail: progress.detail,
+              query: activeQuery,
+              sourcesCount: progress.sourcesCount,
+            });
+          },
+          aiMode
+        );
+
+        if (researchResult.sources.length > 0) {
+          activeDossier = researchResult.dossier;
+          webSources = researchResult.sources;
+          sendSSE(res, "web_sources", { sources: webSources });
+          contextBlock += researchResult.contextText;
+        }
+      } catch (webErr) {
+        console.warn("[Orchestrator] Research agent execution failed gracefully:", webErr);
+      }
+    }
+
+    // 6. Detect whether the question requires deep live platform analytics
     const platformSpecific = requiresPlatformData(message, intent);
     console.log(`[Orchestrator] requiresPlatformData: ${platformSpecific} | intent: ${intent}`);
 
@@ -74,7 +135,6 @@ export async function processChat(req: ChatRequest, res: Response): Promise<void
       console.log(`[StudioAI] Analytics Intent Detected — Fetching fresh YouTube Analytics for userId=${userId}`);
       try {
         await fetchDetailedAnalytics(userId);
-        // Refresh brain after live fetch
         await syncUserBrain(userId);
       } catch (error) {
         console.warn("[StudioAI] Live Analytics fetch optional sync failed, using brain database data:", error);
@@ -83,11 +143,11 @@ export async function processChat(req: ChatRequest, res: Response): Promise<void
       // Build granular context from DB
       const analyticsContext = await buildAnalyticsContext(userId, intent);
       if (analyticsContext.summary) {
-        contextBlock = `\n\n--- GRANULAR ANALYTICS DATA FOR THIS QUESTION ---\n${analyticsContext.summary}\n--- END GRANULAR DATA ---\n`;
+        contextBlock += `\n\n--- GRANULAR ANALYTICS DATA FOR THIS QUESTION ---\n${analyticsContext.summary}\n--- END GRANULAR DATA ---\n`;
       }
     }
 
-    // 6. Build conversation history for Gemini
+    // 7. Build conversation history for Gemini
     const historyResult = await db.execute({
       sql: "SELECT role, content FROM ai_messages WHERE conversation_id = ? ORDER BY created_at ASC",
       args: [conversationId],
@@ -106,29 +166,67 @@ export async function processChat(req: ChatRequest, res: Response): Promise<void
       history.pop();
     }
 
-    // 7. Get system prompt WITH User's Personal AI Brain context
-    const systemPrompt = getSystemPrompt(userName, hasYouTube, hasYouTubeData, userBrain.summary);
+    // 8. Get system prompt WITH User's Personal AI Brain + Behavior context
+    const systemPrompt = getSystemPrompt(
+      userName,
+      hasYouTube,
+      hasYouTubeData,
+      userBrain.summary,
+      behaviorSummary
+    );
 
-    // 8. Construct the user message with analytics context
-    const enrichedMessage = contextBlock
-      ? `${message}\n${contextBlock}`
+    // 9. Construct the user message with analytics/web context
+    // Truncate context to prevent 413 "Request Entity Too Large" errors.
+    // Most Groq models have ~32K token limits (~120K chars). Keep context under 6K chars.
+    const MAX_CONTEXT_CHARS = 6000;
+    let safeContext = contextBlock;
+    if (safeContext.length > MAX_CONTEXT_CHARS) {
+      console.warn(`[Orchestrator] ⚠️ Context too large (${safeContext.length} chars), truncating to ${MAX_CONTEXT_CHARS}`);
+      safeContext = safeContext.substring(0, MAX_CONTEXT_CHARS) + "\n\n[Context truncated for brevity — key sources included above]";
+    }
+
+    const enrichedMessage = safeContext
+      ? `${message}\n${safeContext}`
       : message;
 
-    // 9. Stream response
-    sendSSE(res, "start", { intent });
+    // Limit conversation history to last 10 messages to prevent oversized payloads
+    const MAX_HISTORY_MESSAGES = 10;
+    const trimmedHistory = history.length > MAX_HISTORY_MESSAGES
+      ? history.slice(-MAX_HISTORY_MESSAGES)
+      : history;
 
-    const streamResult = await streamGeminiResponse(systemPrompt, history, enrichedMessage);
+    // 10. Stream response
+    sendSSE(res, "start", { intent, isWebSearch: webSources.length > 0, sources: webSources });
+
+    const streamResult = await streamGeminiResponse(systemPrompt, trimmedHistory, enrichedMessage);
+    console.log(`[Orchestrator] ✅ Stream obtained, consuming chunks...`);
 
     let fullResponse = "";
+    let chunksSent = 0;
     for await (const chunk of streamResult.stream) {
       const text = chunk.text();
       if (text) {
         fullResponse += text;
+        chunksSent++;
         sendSSE(res, "chunk", { text });
       }
     }
+    console.log(`[Orchestrator] 📝 Stream complete: ${chunksSent} chunks, ${fullResponse.length} chars total`);
 
-    // 10. Save assistant response
+    // 10b. Mandatory Fact-Gating & Grounding Pass
+    if (activeDossier && activeDossier.inspectedSources.length > 0 && fullResponse.length > 30) {
+      try {
+        const audit = await sanitizeAnswerWithDossier(fullResponse, activeDossier);
+        if (audit.hadHallucinations && audit.sanitizedAnswer && audit.sanitizedAnswer !== fullResponse) {
+          fullResponse = audit.sanitizedAnswer;
+          sendSSE(res, "replace", { text: fullResponse });
+        }
+      } catch (gateErr) {
+        console.warn("[Orchestrator] Fact gate pass completed with draft:", gateErr);
+      }
+    }
+
+    // 11. Save assistant response
     const assistantMsgId = crypto.randomUUID();
     await db.execute({
       sql: "INSERT INTO ai_messages (id, conversation_id, user_id, role, content, metadata, created_at) VALUES (?, ?, ?, 'assistant', ?, ?, datetime('now'))",
@@ -137,7 +235,7 @@ export async function processChat(req: ChatRequest, res: Response): Promise<void
         conversationId,
         userId,
         fullResponse,
-        JSON.stringify({ intent, hasYouTubeData }),
+        JSON.stringify({ intent, hasYouTubeData, sources: webSources }),
       ],
     });
 
@@ -147,7 +245,7 @@ export async function processChat(req: ChatRequest, res: Response): Promise<void
       args: [conversationId],
     });
 
-    sendSSE(res, "done", { messageId: assistantMsgId });
+    sendSSE(res, "done", { messageId: assistantMsgId, sources: webSources });
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : "Unknown error";
     console.error("[Orchestrator] Error:", errMsg);
@@ -172,7 +270,11 @@ export async function processChat(req: ChatRequest, res: Response): Promise<void
         sendSSE(res, "done", { messageId: "fallback" });
       }
     } else {
-      sendSSE(res, "error", { error: errMsg });
+      // Never leak internal error details to the client
+      sendSSE(res, "error", {
+        error: "Something went wrong processing your request. Please try again.",
+        reason: "unknown"
+      });
     }
   }
 }

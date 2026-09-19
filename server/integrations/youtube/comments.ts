@@ -142,6 +142,31 @@ export async function fetchVideoComments(
                 userId,
               ],
             });
+
+            // Detect if this reply was authored by the channel owner
+            const videoChannelId = thread.snippet?.channelId;
+            const replyAuthorChannelId = (rs as any)?.authorChannelId?.value;
+            const isOwnerReply = Boolean(
+              videoChannelId && replyAuthorChannelId && videoChannelId === replyAuthorChannelId
+            );
+
+            if (isOwnerReply) {
+              await db.execute({
+                sql: `UPDATE youtube_comments SET
+                        owner_replied = 1,
+                        owner_reply_text = COALESCE(NULLIF(owner_reply_text, ''), ?),
+                        owner_reply_at = COALESCE(NULLIF(owner_reply_at, ''), ?),
+                        owner_reply_youtube_id = COALESCE(NULLIF(owner_reply_youtube_id, ''), ?)
+                      WHERE id = ? AND user_id = ?`,
+                args: [
+                  rs.textOriginal || rs.textDisplay || "",
+                  rs.publishedAt || new Date().toISOString(),
+                  reply.id || "",
+                  commentDbId,
+                  userId,
+                ],
+              });
+            }
           }
         }
       }

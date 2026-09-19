@@ -93,7 +93,7 @@ router.get("/test-gemini", async (_req: Request, res: Response) => {
  */
 router.post("/chat", async (req: Request, res: Response) => {
   try {
-    const { userId, conversationId, message, userName } = req.body;
+    const { userId, conversationId, message, userName, aiMode } = req.body;
 
     if (!userId || !message) {
       res.status(400).json({ error: "userId and message are required" });
@@ -117,6 +117,7 @@ router.post("/chat", async (req: Request, res: Response) => {
         conversationId: conversationId || null,
         message,
         userName: userName || "Creator",
+        aiMode: aiMode === "web" ? "web" : "normal",
       },
       res
     );

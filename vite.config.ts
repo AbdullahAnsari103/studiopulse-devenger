@@ -10,4 +10,19 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:3001',
+        changeOrigin: true,
+        secure: false,
+        ws: true,
+        configure: (proxy) => {
+          proxy.on('error', (err, _req, _res) => {
+            console.warn('[Vite Proxy] Backend connection pending/retrying:', err.message);
+          });
+        },
+      }
+    }
+  }
 })

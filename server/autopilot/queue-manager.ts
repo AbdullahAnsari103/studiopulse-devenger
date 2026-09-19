@@ -256,6 +256,55 @@ export async function getQueueItems(
 }
 
 /**
+ * Get a single queue item by ID.
+ */
+export async function getQueueItem(itemId: string): Promise<QueueItem | null> {
+  const result = await db.execute({
+    sql: "SELECT * FROM autopilot_queue WHERE id = ? LIMIT 1",
+    args: [itemId],
+  });
+  if (result.rows.length === 0) return null;
+  const row = result.rows[0];
+  return {
+    id: row.id as string,
+    userId: row.user_id as string,
+    fileName: row.file_name as string,
+    filePath: row.file_path as string,
+    fileSize: (row.file_size as number) || 0,
+    thumbnailPath: row.thumbnail_path as string | null,
+    customThumbnailPath: row.custom_thumbnail_path as string | null,
+    title: row.title as string | null,
+    description: row.description as string | null,
+    tags: safeParseJSON(row.tags as string, []),
+    categoryId: (row.category_id as string) || "22",
+    platform: (row.platform as string) || "youtube",
+    platforms: safeParseJSON(row.platforms as string, ["youtube"]),
+    scheduledAt: row.scheduled_at as string | null,
+    scheduleMode: (row.schedule_mode as string) || "ai",
+    visibility: (row.visibility as string) || "public",
+    playlistId: row.playlist_id as string | null,
+    license: (row.license as string) || "youtube",
+    notifySubscribers: !!(row.notify_subscribers as number),
+    madeForKids: !!(row.made_for_kids as number),
+    language: (row.language as string) || "en",
+    queueOrder: (row.queue_order as number) || 0,
+    batchId: (row.batch_id as string) || "",
+    status: (row.status as string) || "pending",
+    platformVideoId: row.platform_video_id as string | null,
+    platformUrl: row.platform_url as string | null,
+    publishError: row.publish_error as string | null,
+    aiMetadata: safeParseJSON(row.ai_metadata as string, null),
+    aiContentSummary: row.ai_content_summary as string | null,
+    userContext: row.user_context as string | null,
+    videoDurationSeconds: (row.video_duration_seconds as number) || 0,
+    aspectRatio: row.aspect_ratio as string | null,
+    createdAt: (row.created_at as string) || "",
+    updatedAt: (row.updated_at as string) || "",
+    publishedAt: row.published_at as string | null,
+  };
+}
+
+/**
  * Get queue statistics for a user.
  */
 export async function getQueueStats(userId: string): Promise<QueueStats> {

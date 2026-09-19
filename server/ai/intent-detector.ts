@@ -5,6 +5,7 @@
 
 export type AIIntent =
   | "general"                // General conversation, no platform data needed
+  | "web_search"              // Web search or URL scraping
   | "youtube_channel"        // Channel-level questions (subscribers, growth, overview)
   | "youtube_videos"         // Video-specific questions (top videos, worst videos, specific video)
   | "youtube_revenue"        // Revenue / monetization questions
@@ -21,6 +22,20 @@ interface IntentPattern {
 }
 
 const INTENT_PATTERNS: IntentPattern[] = [
+  {
+    intent: "web_search",
+    patterns: [
+      /https?:\/\//i,
+      /search (the )?web/i,
+      /look ?up/i,
+      /browse (the )?web/i,
+      /find (online|info on|articles? about)/i,
+      /compare .* (202[4-9]|today|latest|current)/i,
+      /what (is|are) (trending|the latest)/i,
+      /recent news/i,
+    ],
+    keywords: ["search", "web", "lookup", "browse", "compare", "trending", "news", "online", "latest", "specs", "price", "reviews"],
+  },
   {
     intent: "youtube_revenue",
     patterns: [

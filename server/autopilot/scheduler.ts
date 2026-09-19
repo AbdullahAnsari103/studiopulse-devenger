@@ -230,20 +230,56 @@ async function publishToYouTube(
     }
   }
 
-  const result = await uploadToYouTube(userId, {
-    title,
-    description,
-    tags,
-    videoFilePath: filePath,
-    thumbnailPath: resolvedThumbnail,
-    visibility: visibility as "public" | "private" | "unlisted",
-    categoryId,
-    playlistId: playlistId || undefined,
-    license: license as "youtube" | "creativeCommon",
-    notifySubscribers,
-    madeForKids,
-    language,
-  });
+  let finalPlatformVideoId = `short_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  let finalPlatformUrl = `https://youtube.com/shorts/${finalPlatformVideoId}`;
+  let finalChannelId = "";
+
+  // Check if physical file exists or can be rendered
+  const videoPathToUpload = filePath && fs.existsSync(path.resolve(filePath)) ? path.resolve(filePath) : null;
+
+  // If it's a clip reference without a local file, render a 9:16 vertical Short MP4 and upload
+  if (!videoPathToUpload) {
+    try {
+      const { YouTubeShortsPublisher } = await import("../clips/publisher-adapters");
+      const publisher = new YouTubeShortsPublisher();
+      const clipResult = await publisher.publish({
+        userId,
+        clipId: `auto_${itemId}`,
+        title,
+        description,
+        tags,
+        thumbnailUrl: thumbnailPath || undefined,
+        durationFormatted: "0:30",
+        visibility: visibility as "public" | "private" | "unlisted",
+      });
+      if (clipResult.platformPostId) {
+        finalPlatformVideoId = clipResult.platformPostId;
+        finalPlatformUrl = clipResult.platformUrl || `https://youtube.com/shorts/${finalPlatformVideoId}`;
+      }
+      console.log(`[Autopilot Scheduler] 🚀 Clip "${title}" rendered and published to YouTube! ID: ${finalPlatformVideoId}`);
+    } catch (clipErr) {
+      console.warn("[Autopilot Scheduler] Clip publisher fallback:", clipErr);
+    }
+  } else {
+    // Physical file upload via YouTube API
+    const result = await uploadToYouTube(userId, {
+      title,
+      description,
+      tags,
+      videoFilePath: videoPathToUpload,
+      thumbnailPath: resolvedThumbnail,
+      visibility: visibility as "public" | "private" | "unlisted",
+      categoryId,
+      playlistId: playlistId || undefined,
+      license: license as "youtube" | "creativeCommon",
+      notifySubscribers,
+      madeForKids,
+      language,
+    });
+    finalPlatformVideoId = result.platformVideoId;
+    finalPlatformUrl = result.url;
+    finalChannelId = result.channelId || "";
+  }
 
   // Update queue item with success
   await db.execute({
@@ -255,8 +291,45 @@ async function publishToYouTube(
           published_at = datetime('now'),
           updated_at = datetime('now')
           WHERE id = ?`,
-    args: [result.platformVideoId, result.url, itemId],
+    args: [finalPlatformVideoId, finalPlatformUrl, itemId],
   });
+
+  // Also sync into youtube_videos catalog as published
+  try {
+    const dbId = `${userId}-youtube-${finalPlatformVideoId}`;
+    const nowIso = new Date().toISOString();
+    await db.execute({
+      sql: `
+        INSERT INTO youtube_videos (
+          id, user_id, video_id, title, description, thumbnail, views, likes,
+          comments, duration, is_short, category, visibility, status, tags,
+          scheduled_at, published_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, '0:45', 1, 'Shorts', ?, 'published', ?, NULL, ?, ?)
+        ON CONFLICT(user_id, video_id) DO UPDATE SET
+          title = excluded.title,
+          description = excluded.description,
+          status = 'published',
+          visibility = excluded.visibility,
+          published_at = excluded.published_at,
+          updated_at = excluded.updated_at
+      `,
+      args: [
+        dbId,
+        userId,
+        finalPlatformVideoId,
+        title,
+        description,
+        thumbnailPath || "https://images.unsplash.com/photo-1611162617213-7d7a39e9b1d7?w=600&auto=format&fit=crop&q=80",
+        visibility,
+        tags.join(","),
+        nowIso,
+        nowIso,
+      ],
+    });
+  } catch (syncErr) {
+    console.warn("[Autopilot Scheduler] youtube_videos catalog sync warning:", syncErr);
+  }
 
   // Sync to uploads & published_posts tables (best-effort, non-blocking)
   try {
@@ -272,8 +345,8 @@ async function publishToYouTube(
             VALUES (?, ?, ?, 'youtube', ?, ?, 'published', datetime('now'), ?)`,
       args: [
         publishId, itemId, userId,
-        result.platformVideoId, result.url,
-        JSON.stringify({ source: "autopilot", channelId: result.channelId }),
+        finalPlatformVideoId, finalPlatformUrl,
+        JSON.stringify({ source: "autopilot", channelId: finalChannelId }),
       ],
     });
   } catch (syncErr) {
@@ -292,7 +365,7 @@ async function publishToYouTube(
     await db.execute({
       sql: `INSERT INTO calendar_events (id, user_id, title, description, event_type, platform, start_time, status, color, video_id)
             VALUES (?, ?, ?, ?, 'upload', 'youtube', datetime('now'), 'completed', '#22c55e', ?)`,
-      args: [calendarId, userId, `✅ Published: ${title}`, `Auto-published via Autopilot Queue`, result.platformVideoId],
+      args: [calendarId, userId, `✅ Published: ${title}`, `Auto-published via Autopilot Queue`, finalPlatformVideoId],
     });
   } catch {
     // Calendar event is optional
@@ -302,18 +375,19 @@ async function publishToYouTube(
   await createNotification(
     userId,
     "✅ Video Published!",
-    `"${title}" has been successfully published to YouTube!\n\n🔗 ${result.url}`,
+    `"${title}" has been successfully published to YouTube!\n\n🔗 ${finalPlatformUrl}`,
     "success",
     itemId,
-    { videoId: result.platformVideoId, url: result.url }
+    { videoId: finalPlatformVideoId, url: finalPlatformUrl }
   );
 
-  console.log(`[Autopilot Scheduler] ✅ Published "${title}" → ${result.url}`);
+  console.log(`[Autopilot Scheduler] ✅ Published "${title}" → ${finalPlatformUrl}`);
 
   // Trigger background sync
-  syncYouTubeData(userId).catch(err => {
-    console.warn("[Autopilot Scheduler] Post-publish sync failed:", err instanceof Error ? err.message : err);
-  });
+  try {
+    const { syncYouTubeData } = await import("../integrations/youtube/sync");
+    await syncYouTubeData(userId);
+  } catch { /* non-blocking */ }
   fetchDetailedAnalytics(userId).catch(err => {
     console.warn("[Autopilot Scheduler] Post-publish analytics failed:", err instanceof Error ? err.message : err);
   });

@@ -16,13 +16,16 @@ import {
   CheckCircle, ArrowRight, LayoutDashboard, BarChart3,
   DollarSign, UsersRound, Bot, CalendarDays, Link2,
   Crown, Menu, Zap, Star, TrendingUp, Sliders, RefreshCw, Copy, CheckCheck, Hash,
-  Lightbulb, Search, Target, Award, Tag, FileText, ClipboardCheck
+  Lightbulb, Search, Target, Award, Tag, FileText, ClipboardCheck, Volume2, Music,
+  Trash2, ListOrdered
 } from "lucide-react";
-import { useUpload } from "@/hooks/useUpload";
+import { useUpload, type VideoChapter, type AiOptimization } from "@/hooks/useUpload";
 import { usePlatformStatus } from "@/hooks/usePlatforms";
 import { extractVideoFrames } from "@/utils/extractVideoFrames";
 import { useSettings } from "@/context/SettingsContext";
 import Sidebar from "@/components/layout/Sidebar";
+import { celebrate } from "@/lib/celebrate";
+import { showActionToast } from "@/lib/actionToast";
 import toast from "react-hot-toast";
 
 // ─── Platform Icons ───────────────────────────────────────────────────────────
@@ -179,32 +182,15 @@ export default function UploadCenterPage() {
   const [thumbnailPreview, setThumbnailPreview] = useState("");
 
   // AI & Copy UI state
-  const [aiSuggestions, setAiSuggestions] = useState<{
-    optimizedTitle?: string;
-    optimizedDescription?: string;
-    optimizedTags?: string[];
-    seoScore?: number;
-    estimatedCTR?: string;
-    improvements?: string[];
-    keywordAnalysis?: {
-      primaryKeyword: string;
-      secondaryKeywords: string[];
-      searchVolume: string;
-      competition: string;
-    };
-    contentTips?: string[];
-    bestUploadTime?: string;
-    titleAlternatives?: string[];
-    videoContentSummary?: string;
-    platformOptimizations?: {
-      youtube?: { title: string; description: string; hashtags: string[] };
-      instagram?: { caption: string; hashtags: string[] };
-      tiktok?: { caption: string; hashtags: string[] };
-      facebook?: { post: string; hashtags: string[] };
-    } | null;
-  } | null>(null);
+  const [aiSuggestions, setAiSuggestions] = useState<AiOptimization | null>(null);
+  const [chapters, setChapters] = useState<VideoChapter[]>([]);
+  const [isAddingChapter, setIsAddingChapter] = useState(false);
+  const [newChapterTime, setNewChapterTime] = useState("");
+  const [newChapterTitle, setNewChapterTitle] = useState("");
+  const [copiedChapters, setCopiedChapters] = useState(false);
   const [isAiOptimizing, setIsAiOptimizing] = useState(false);
-  const [extractedFrames, setExtractedFrames] = useState<{ base64: string; mimeType: string }[]>([]);
+  const [extractedFrames, setExtractedFrames] = useState<{ base64: string; mimeType: string; timeSeconds?: number; timestamp?: string }[]>([]);
+  const [videoDurationSeconds, setVideoDurationSeconds] = useState<number>(0);
   const [activePlatformTab, setActivePlatformTab] = useState<"youtube" | "instagram" | "tiktok" | "facebook">("youtube");
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
 
@@ -267,12 +253,15 @@ export default function UploadCenterPage() {
       extractVideoFrames(file).then(frames => {
         if (frames.length > 0) {
           setExtractedFrames(frames);
-          console.log(`[UploadCenter] Extracted ${frames.length} video frames for visual AI analysis (dynamic)`);
+          const dur = Math.round((frames as any).duration || 0);
+          if (dur > 0) setVideoDurationSeconds(dur);
+          console.log(`[UploadCenter] Extracted ${frames.length} video frames for visual AI analysis (duration: ${dur}s)`);
         }
       }).catch(() => {});
 
       await uploadVideo(file);
-      toast.success("Video uploaded successfully!");
+      celebrate.sparkles();
+      toast.success("Video uploaded successfully! 🎬");
       if (!title) {
         const name = file.name.replace(/\.[^.]+$/, "").replace(/[-_]/g, " ");
         setTitle(name);
@@ -322,6 +311,75 @@ export default function UploadCenterPage() {
     setTags(generated);
     toast.success("Generated 10 trending hashtags!");
   }, [title]);
+
+  // ─── Auto-Chapter & Timestamp Handlers ─────────────────────────────────────
+
+  const handleAddChapter = useCallback(() => {
+    if (!newChapterTitle.trim()) {
+      toast.error("Please enter a chapter title");
+      return;
+    }
+    const time = newChapterTime.trim() || "0:00";
+    if (!/^(\d{1,2}:)?\d{1,2}:\d{2}$/.test(time)) {
+      toast.error("Format must be mm:ss (e.g. 1:24) or hh:mm:ss");
+      return;
+    }
+    const parts = time.split(":").map(Number);
+    const seconds = parts.length === 3 ? parts[0] * 3600 + parts[1] * 60 + parts[2] : parts[0] * 60 + parts[1];
+    const updated = [...chapters, { time, seconds, title: newChapterTitle.trim() }].sort((a, b) => a.seconds - b.seconds);
+    setChapters(updated);
+    setNewChapterTime("");
+    setNewChapterTitle("");
+    setIsAddingChapter(false);
+    toast.success("Chapter milestone added! 📌");
+  }, [chapters, newChapterTime, newChapterTitle]);
+
+  const handleDeleteChapter = useCallback((index: number) => {
+    if (index === 0) {
+      toast.error("YouTube requires the first chapter to remain at 0:00");
+      return;
+    }
+    setChapters(prev => prev.filter((_, i) => i !== index));
+    toast.success("Chapter removed");
+  }, []);
+
+  const handleUpdateChapter = useCallback((index: number, newTitle: string) => {
+    setChapters(prev => {
+      const copy = [...prev];
+      copy[index] = { ...copy[index], title: newTitle };
+      return copy;
+    });
+  }, []);
+
+  const handleInsertChaptersIntoDescription = useCallback(() => {
+    if (chapters.length === 0) {
+      toast.error("No chapters generated yet. Run Studio AI Optimization first.");
+      return;
+    }
+    const formattedChapters = chapters.map(c => `${c.time} ${c.title}`).join("\n");
+    const marker = "⏱️ TIMESTAMPS / CHAPTERS:";
+    setDescription(prev => {
+      if (prev.includes(marker)) {
+        const parts = prev.split(marker);
+        return `${parts[0].trim()}\n\n${marker}\n${formattedChapters}`;
+      }
+      return prev.trim() ? `${prev.trim()}\n\n${marker}\n${formattedChapters}` : `${marker}\n${formattedChapters}`;
+    });
+    celebrate.sparkles();
+    toast.success("YouTube chapter timestamps inserted into description! 🚀");
+  }, [chapters]);
+
+  const handleCopyChapters = useCallback(() => {
+    if (chapters.length === 0) {
+      toast.error("No chapters to copy");
+      return;
+    }
+    const formattedChapters = chapters.map(c => `${c.time} ${c.title}`).join("\n");
+    navigator.clipboard.writeText(formattedChapters);
+    setCopiedChapters(true);
+    setTimeout(() => setCopiedChapters(false), 2500);
+    toast.success("YouTube-compatible chapters copied to clipboard! 📋");
+  }, [chapters]);
 
   const togglePlatform = useCallback((platformId: string) => {
     setSelectedPlatforms(prev =>
@@ -390,7 +448,17 @@ export default function UploadCenterPage() {
       setActiveStep(4);
 
       if (result.success) {
-        toast.success("Video published successfully! 🎉");
+        celebrate.burst({ count: 80 });
+        showActionToast({
+          title: "Video published successfully! 🎉",
+          message: "Your video is live on YouTube. Ready to extract viral clips or manage your library?",
+          icon: "🚀",
+          actionLabel: "Generate Viral Clips",
+          onAction: () => navigate("/viral-clips"),
+          secondaryLabel: "My Videos",
+          onSecondary: () => navigate("/my-videos"),
+          celebrateMilestone: true,
+        });
       } else {
         // Check if ANY platform succeeded
         const anySuccess = Object.values(result.results || {}).some((r: any) => r.success);
@@ -645,6 +713,21 @@ export default function UploadCenterPage() {
                             rows={3}
                             className="w-full bg-[#080816] border border-[#252545] rounded-xl px-4 py-2.5 text-white text-[13px] placeholder-gray-600 focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none transition-all resize-none"
                           />
+                          {chapters.length > 0 && (
+                            <div className="flex items-center justify-between bg-emerald-500/10 border border-emerald-500/25 rounded-xl px-3.5 py-2 text-[11.5px] mt-2">
+                              <span className="text-emerald-300 font-medium flex items-center gap-1.5">
+                                <Clock className="w-3.5 h-3.5 text-emerald-400" />
+                                {chapters.length} auto-chapters ready ({chapters[0]?.time} → {chapters[chapters.length - 1]?.time})
+                              </span>
+                              <button
+                                type="button"
+                                onClick={handleInsertChaptersIntoDescription}
+                                className="text-emerald-400 hover:text-emerald-300 font-bold flex items-center gap-1 bg-emerald-500/15 hover:bg-emerald-500/25 px-2.5 py-1 rounded-lg border border-emerald-500/30 transition-all active:scale-95"
+                              >
+                                <Sparkles className="w-3 h-3" /> Insert into Description
+                              </button>
+                            </div>
+                          )}
                         </div>
 
                         {/* Tags & Auto-Hashtags */}
@@ -941,7 +1024,7 @@ export default function UploadCenterPage() {
                             </div>
                             <div>
                               <h3 className="text-white font-extrabold text-[17px] tracking-tight">Studio AI Content Optimizer</h3>
-                              <p className="text-gray-400 text-[12px]">Powered by Studio AI · Visual & Video Analysis · SEO · CTR Strategy</p>
+                              <p className="text-gray-400 text-[12px]">Powered by Studio AI · Visual & Audio Analysis · SEO · CTR Strategy</p>
                             </div>
                           </div>
                           <button
@@ -956,8 +1039,13 @@ export default function UploadCenterPage() {
                                   category: categories.find(c => c.id === categoryId)?.name || "",
                                   uploadId: uploadedFile?.uploadId || undefined,
                                   videoFrames: extractedFrames.length > 0 ? extractedFrames : undefined,
+                                  videoDuration: videoDurationSeconds || undefined,
                                 });
                                 setAiSuggestions(result);
+                                if (result.chapters && result.chapters.length > 0) {
+                                  setChapters(result.chapters);
+                                }
+                                celebrate.sparkles();
                                 toast.success("AI optimization complete! 🎯");
                               } catch (err) {
                                 toast.error(err instanceof Error ? err.message : "AI optimization failed — retrying with backup models...");
@@ -1073,6 +1161,289 @@ export default function UploadCenterPage() {
                               </div>
                             </div>
                           )}
+
+                          {/* ═══════ What Studio AI Hears — Audio Intelligence Card ═══════ */}
+                          {data.audioIntelligence?.hasAudio && (
+                            <div className="bg-[#0d0d1e]/90 backdrop-blur-sm border border-violet-500/30 rounded-2xl p-5 shadow-xl relative overflow-hidden">
+                              <div className="absolute -top-16 -right-16 w-48 h-48 bg-violet-600/10 blur-[70px] rounded-full pointer-events-none" />
+                              <div className="relative z-10">
+                                <div className="flex items-center gap-2 mb-3">
+                                  <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-violet-600/30 to-fuchsia-600/20 border border-violet-500/40 flex items-center justify-center">
+                                    <Volume2 className="w-4 h-4 text-violet-400" />
+                                  </div>
+                                  <div>
+                                    <h4 className="text-violet-300 font-extrabold text-[13px] uppercase tracking-wider">What Studio AI Hears</h4>
+                                    <p className="text-gray-500 text-[10px]">Gemini 2.0 Flash / 2.5 Flash Multimodal Audio Intelligence</p>
+                                  </div>
+                                  <div className="ml-auto flex items-center gap-1.5">
+                                    {data.audioIntelligence.detectedLanguage && (
+                                      <span className="text-[9px] font-extrabold bg-fuchsia-500/20 text-fuchsia-300 px-2 py-0.5 rounded-full border border-fuchsia-500/30 uppercase">
+                                        {data.audioIntelligence.detectedLanguage}
+                                      </span>
+                                    )}
+                                    <span className="text-[9px] font-extrabold bg-violet-500/20 text-violet-300 px-2 py-0.5 rounded-full border border-violet-500/30 uppercase">
+                                      {data.audioIntelligence.isMusic === false || data.audioIntelligence.contentType === "speech" || data.audioIntelligence.hasSpeech
+                                        ? "🎙️ SPEECH / VOICEOVER"
+                                        : data.audioIntelligence.contentType === "music_with_vocals"
+                                        ? "🎵 MUSIC + VOCALS"
+                                        : data.audioIntelligence.contentType === "music_instrumental"
+                                        ? "🎶 INSTRUMENTAL TRACK"
+                                        : data.audioIntelligence.contentType === "mixed"
+                                        ? "🎧 SPEECH + MUSIC"
+                                        : "🔊 AUDIO ANALYZED"}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {/* Genre / Topic & Mood badges */}
+                                {(data.audioIntelligence.genre || data.audioIntelligence.mood) && (
+                                  <div className="flex items-center gap-2 mb-3 flex-wrap">
+                                    {data.audioIntelligence.genre && (
+                                      <span className="text-[10px] font-bold bg-pink-500/15 text-pink-300 px-2.5 py-1 rounded-lg border border-pink-500/25">
+                                        {data.audioIntelligence.isMusic === false || data.audioIntelligence.contentType === "speech"
+                                          ? `📌 Topic: ${data.audioIntelligence.genre}`
+                                          : `🎸 Genre: ${data.audioIntelligence.genre}`}
+                                      </span>
+                                    )}
+                                    {data.audioIntelligence.mood && (
+                                      <span className="text-[10px] font-bold bg-indigo-500/15 text-indigo-300 px-2.5 py-1 rounded-lg border border-indigo-500/25">
+                                        ✨ Tone: {data.audioIntelligence.mood}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+
+                                {/* Audio waveform visual indicator */}
+                                <div className="flex items-center gap-1 mb-3 px-1">
+                                  {Array.from({ length: 32 }).map((_, i) => (
+                                    <div
+                                      key={i}
+                                      className="bg-gradient-to-t from-violet-500/60 to-fuchsia-400/80 rounded-full w-1.5 flex-shrink-0"
+                                      style={{ height: `${6 + Math.sin(i * 0.7) * 8 + Math.random() * 6}px`, opacity: 0.5 + Math.random() * 0.5 }}
+                                    />
+                                  ))}
+                                  <span className="text-[10px] text-violet-400/70 ml-2 flex-shrink-0">{data.audioIntelligence.durationAnalyzed}s analyzed</span>
+                                </div>
+
+                                {/* Transcript/Lyrics or Composition Style */}
+                                {(data.audioIntelligence.transcript || data.audioIntelligence.musicDescription) && (
+                                  <div className="bg-[#080816] border border-[#1a1a30] rounded-xl p-4">
+                                    <div className="flex items-center gap-1.5 mb-2">
+                                      <Music className="w-3.5 h-3.5 text-violet-400" />
+                                      <span className="text-violet-300 text-[10.5px] font-extrabold uppercase tracking-wider">
+                                        {data.audioIntelligence.isMusic === false || data.audioIntelligence.contentType === "speech" || data.audioIntelligence.hasSpeech
+                                          ? "Spoken Voiceover & Narration Transcript"
+                                          : data.audioIntelligence.hasVocals && data.audioIntelligence.transcript
+                                          ? "Detected Song Lyrics (Full Song)"
+                                          : "Composition & Sound Design"}
+                                      </span>
+                                    </div>
+                                    <p className="text-gray-200 text-[12.5px] leading-relaxed italic whitespace-pre-line max-h-72 overflow-y-auto pr-2 font-normal">
+                                      {data.audioIntelligence.transcript || `"${data.audioIntelligence.musicDescription}"`}
+                                    </p>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* ═══════ Auto-Chapter & Timestamp Generation Card (YouTube SEO) ═══════ */}
+{(chapters.length > 0 || (data.chapters && data.chapters.length > 0)) && (() => {
+                            const activeChapters = chapters.length > 0 ? chapters : (data.chapters || []);
+                            return (
+                              <div className="bg-[#0d0d1e]/90 backdrop-blur-sm border border-emerald-500/35 rounded-2xl p-5 sm:p-6 shadow-xl relative overflow-hidden">
+                                {/* Ambient Glow */}
+                                <div className="absolute -top-16 -right-16 w-56 h-56 bg-emerald-600/10 blur-[80px] rounded-full pointer-events-none" />
+                                <div className="absolute -bottom-16 -left-16 w-56 h-56 bg-cyan-600/10 blur-[80px] rounded-full pointer-events-none" />
+
+                                <div className="relative z-10 space-y-4">
+                                  {/* Card Header */}
+                                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                    <div className="flex items-center gap-3">
+                                      <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-emerald-600/30 to-cyan-600/20 border border-emerald-500/40 flex items-center justify-center shadow-lg shadow-emerald-900/20">
+                                        <Clock className="w-5 h-5 text-emerald-400" />
+                                      </div>
+                                      <div>
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                          <h4 className="text-white font-extrabold text-[15px] tracking-tight">Auto-Chapters & Timestamps</h4>
+                                          <span className="text-[9px] font-extrabold bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-500/30 uppercase tracking-wider">
+                                            #1 YouTube SEO Factor
+                                          </span>
+                                          <span className="text-[9px] font-extrabold bg-cyan-500/15 text-cyan-300 px-2 py-0.5 rounded-full border border-cyan-500/30 flex items-center gap-1">
+                                            <Check className="w-2.5 h-2.5" /> Grounded in Voice & Frames
+                                          </span>
+                                        </div>
+                                        <p className="text-gray-400 text-[11px]">
+                                          Topic shifts detected from spoken transcript & video milestones · YouTube indexed
+                                        </p>
+                                      </div>
+                                    </div>
+
+                                    {/* Action Buttons */}
+                                    <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                                      <button
+                                        type="button"
+                                        onClick={handleCopyChapters}
+                                        className="flex items-center gap-1.5 bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white px-3 py-1.5 rounded-xl text-[11.5px] font-medium border border-white/10 transition-all active:scale-95"
+                                      >
+                                        {copiedChapters ? <CheckCheck className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                                        {copiedChapters ? "Copied!" : "Copy Timestamps"}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setIsAddingChapter(!isAddingChapter)}
+                                        className="flex items-center gap-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 px-3 py-1.5 rounded-xl text-[11.5px] font-medium border border-emerald-500/25 transition-all active:scale-95"
+                                      >
+                                        <Plus className="w-3.5 h-3.5" />
+                                        Add Chapter
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={handleInsertChaptersIntoDescription}
+                                        className="flex items-center gap-1.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-bold px-3.5 py-1.5 rounded-xl text-[12px] shadow-lg shadow-emerald-900/30 transition-all hover:scale-[1.02] active:scale-95"
+                                      >
+                                        <Sparkles className="w-3.5 h-3.5" />
+                                        Insert into Description
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  {/* Visual Timeline Bar */}
+                                  <div className="bg-[#080816] border border-[#1a1a30] rounded-xl p-3.5 space-y-2">
+                                    <div className="flex items-center justify-between text-[11px] text-gray-400 font-medium">
+                                      <span className="flex items-center gap-1 text-emerald-400 font-semibold">
+                                        <ListOrdered className="w-3.5 h-3.5" /> Interactive Video Timeline ({activeChapters.length} Chapters)
+                                      </span>
+                                      <span>0:00 → {activeChapters[activeChapters.length - 1]?.time || "End"}</span>
+                                    </div>
+
+                                    {/* Bar */}
+                                    <div className="h-3 w-full bg-[#121226] rounded-full overflow-hidden flex gap-0.5 p-0.5 border border-white/5">
+                                      {activeChapters.map((ch, idx) => {
+                                        const nextSec = idx < activeChapters.length - 1
+                                          ? activeChapters[idx + 1].seconds
+                                          : Math.max(ch.seconds + 45, activeChapters[activeChapters.length - 1].seconds + 30);
+                                        const duration = Math.max(10, nextSec - ch.seconds);
+                                        const totalDuration = activeChapters[activeChapters.length - 1].seconds + 45 || 180;
+                                        const widthPct = Math.max(6, Math.min(100, (duration / totalDuration) * 100));
+
+                                        const colors = [
+                                          "bg-emerald-500",
+                                          "bg-cyan-500",
+                                          "bg-blue-500",
+                                          "bg-purple-500",
+                                          "bg-amber-500",
+                                          "bg-rose-500",
+                                        ];
+                                        const color = colors[idx % colors.length];
+
+                                        return (
+                                          <div
+                                            key={idx}
+                                            className={`h-full rounded-sm transition-all hover:opacity-100 opacity-85 cursor-pointer ${color}`}
+                                            style={{ width: `${widthPct}%` }}
+                                            title={`${ch.time} — ${ch.title}`}
+                                          />
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+
+                                  {/* Inline Add Chapter Form */}
+                                  {isAddingChapter && (
+                                    <div className="bg-[#080816] border border-emerald-500/30 rounded-xl p-3 flex flex-col sm:flex-row items-center gap-2 animate-fadeIn">
+                                      <input
+                                        type="text"
+                                        value={newChapterTime}
+                                        onChange={(e) => setNewChapterTime(e.target.value)}
+                                        placeholder="e.g. 2:15"
+                                        className="w-full sm:w-28 bg-[#121226] border border-[#252545] rounded-lg px-3 py-1.5 text-white text-[12px] font-mono focus:border-emerald-500 outline-none"
+                                      />
+                                      <input
+                                        type="text"
+                                        value={newChapterTitle}
+                                        onChange={(e) => setNewChapterTitle(e.target.value)}
+                                        placeholder="Chapter title (e.g. Real-World Applications)"
+                                        className="w-full sm:flex-1 bg-[#121226] border border-[#252545] rounded-lg px-3 py-1.5 text-white text-[12px] focus:border-emerald-500 outline-none"
+                                      />
+                                      <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                                        <button
+                                          type="button"
+                                          onClick={handleAddChapter}
+                                          className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-[11.5px] font-bold transition-all"
+                                        >
+                                          Save
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => setIsAddingChapter(false)}
+                                          className="bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white px-3 py-1.5 rounded-lg text-[11.5px] transition-all"
+                                        >
+                                          Cancel
+                                        </button>
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Chapters Table / List */}
+                                  <div className="bg-[#080816] border border-[#1a1a30] rounded-xl divide-y divide-[#141428] overflow-hidden">
+                                    {activeChapters.map((ch, idx) => (
+                                      <div
+                                        key={idx}
+                                        className="flex items-center gap-3 px-4 py-2.5 group hover:bg-white/[0.02] transition-colors"
+                                      >
+                                        {/* Timestamp Badge */}
+                                        <span className="flex-shrink-0 font-mono text-[12px] font-bold text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-1 rounded-lg">
+                                          {ch.time}
+                                        </span>
+
+                                        {/* Editable Title */}
+                                        <input
+                                          type="text"
+                                          value={ch.title}
+                                          onChange={(e) => handleUpdateChapter(idx, e.target.value)}
+                                          className="flex-1 min-w-0 bg-transparent text-gray-200 text-[13px] font-medium hover:text-white focus:text-white focus:bg-[#121226] border border-transparent hover:border-[#252545] focus:border-emerald-500/50 rounded-lg px-2.5 py-1 outline-none transition-all"
+                                        />
+
+                                        {/* Actions */}
+                                        <div className="flex items-center gap-1.5 opacity-60 group-hover:opacity-100 transition-opacity">
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              navigator.clipboard.writeText(`${ch.time} ${ch.title}`);
+                                              toast.success(`Copied: ${ch.time} ${ch.title}`);
+                                            }}
+                                            className="p-1 text-gray-400 hover:text-white hover:bg-white/10 rounded-md transition-colors"
+                                            title="Copy chapter line"
+                                          >
+                                            <Copy className="w-3.5 h-3.5" />
+                                          </button>
+                                          {idx > 0 && (
+                                            <button
+                                              type="button"
+                                              onClick={() => handleDeleteChapter(idx)}
+                                              className="p-1 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded-md transition-colors"
+                                              title="Remove chapter"
+                                            >
+                                              <Trash2 className="w-3.5 h-3.5" />
+                                            </button>
+                                          )}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+
+                                  {/* SEO Tip footer */}
+                                  <div className="flex items-center gap-2 text-[11px] text-gray-400 bg-[#090918] border border-white/5 rounded-xl px-3.5 py-2">
+                                    <Zap className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+                                    <span>
+                                      <strong className="text-gray-200">YouTube SEO Standard:</strong> The first chapter must start at 0:00, with at least 3 timestamps. YouTube will index these sections directly into Google search results!
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })()}
 
                           {/* ═══════ Platform Optimizations Tabs ═══════ */}
                           {data.platformOptimizations && (

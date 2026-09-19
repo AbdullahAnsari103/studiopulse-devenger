@@ -5,10 +5,20 @@ node_modules/
 dist/
 dist-ssr/
 
-# Environment secrets
+# Environment secrets (block all .env files and variants except .env.example)
 .env
-.env.local
-.env.*.local
+.env.*
+.env*.local
+*.env
+!.env.example
+!*.env.example
+
+# Local SQLite databases & cache
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+studiopulse.db
 
 # Editor directories
 .vscode/*
@@ -26,7 +36,22 @@ npm-debug.log*
 # TypeScript cache
 *.tsbuildinfo
 
-# Runtime uploads & temporary video frames
+# Runtime uploads, generated media & temporary assets
+uploads/
 server/uploads/*
 !server/uploads/.gitkeep
+server/uploads/temp-audio/
+server/uploads/temp-frames/
+server/uploads/clips/
+server/uploads/thumbnails/
+server/uploads/autopilot/
+server/uploads/viral-clips/
+*.mp4
+*.mkv
+*.mov
+*.avi
+*.webm
+
+# Scratch scripts & temporary dev tools
+scratch/
 

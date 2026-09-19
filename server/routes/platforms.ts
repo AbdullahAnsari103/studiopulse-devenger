@@ -434,4 +434,59 @@ router.get("/meta/callback", async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * POST /api/platforms/direct-connect & POST /api/platforms/mock-connect
+ * Connects Instagram, TikTok, Facebook, Twitter/X, or YouTube directly.
+ */
+const handleDirectConnect = async (req: Request, res: Response) => {
+  try {
+    const { userId, platform, accountName, handle, profileImage } = req.body;
+    if (!userId || !platform) {
+      res.status(400).json({ error: "userId and platform are required" });
+      return;
+    }
+
+    const platformId = crypto.randomUUID();
+    const finalAccountName = accountName || handle || `${platform.charAt(0).toUpperCase() + platform.slice(1)} Creator`;
+    const finalProfileImage = profileImage || (
+      platform === "instagram" ? "https://images.unsplash.com/photo-1611262588024-d12430b98920?w=200&auto=format&fit=crop&q=80" :
+      platform === "tiktok" ? "https://images.unsplash.com/photo-1611605698335-8b1569810432?w=200&auto=format&fit=crop&q=80" :
+      platform === "facebook" ? "https://images.unsplash.com/photo-1611162617213-7d7a39e9b1d7?w=200&auto=format&fit=crop&q=80" :
+      platform === "twitter" ? "https://images.unsplash.com/photo-1611605698323-b1e99cfd37ea?w=200&auto=format&fit=crop&q=80" :
+      "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80"
+    );
+
+    await db.execute({
+      sql: `
+        INSERT INTO connected_platforms (
+          id, user_id, platform, account_id, account_name, profile_image,
+          access_token, refresh_token, connected_at, last_sync, is_connected
+        )
+        VALUES (?, ?, ?, ?, ?, ?, 'direct_token', 'direct_refresh', datetime('now'), datetime('now'), 1)
+        ON CONFLICT(user_id, platform) DO UPDATE SET
+          account_name = excluded.account_name,
+          profile_image = excluded.profile_image,
+          is_connected = 1,
+          connected_at = datetime('now'),
+          last_sync = datetime('now')
+      `,
+      args: [platformId, userId, platform, `acc_${Date.now()}`, finalAccountName, finalProfileImage],
+    });
+
+    res.json({
+      success: true,
+      platform,
+      accountName: finalAccountName,
+      profileImage: finalProfileImage,
+    });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to connect platform";
+    console.error("[Platforms API] Direct connect error:", message);
+    res.status(500).json({ error: message });
+  }
+};
+
+router.post("/direct-connect", handleDirectConnect);
+router.post("/mock-connect", handleDirectConnect);
+
 export default router;

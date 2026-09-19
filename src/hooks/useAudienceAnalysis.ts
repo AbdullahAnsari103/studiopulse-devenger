@@ -109,6 +109,19 @@ export interface GeneratedReply {
   sentiment?: string;
 }
 
+export interface ToneProfile {
+  toneSummary: string;
+  formality: "casual" | "balanced" | "formal";
+  emojiUsage: "none" | "sparse" | "moderate" | "heavy";
+  avgReplyLength: "short" | "medium" | "long";
+  asksFollowups: boolean;
+  usesHumor: boolean;
+  languageStyle: string;
+  sampleReplies: string[];
+  analyzedReplyCount: number;
+  updatedAt: string;
+}
+
 export function useAudienceAnalysis(options: {
   videoId?: string;
   sentimentFilter?: string;
@@ -167,6 +180,21 @@ export function useAudienceAnalysis(options: {
     },
     enabled: !!userId,
     staleTime: 10 * 60 * 1000,
+  });
+
+  // Query: Creator tone profile
+  const toneProfileQuery = useQuery({
+    queryKey: ["audience-tone-profile", userId],
+    queryFn: async () => {
+      const res = await apiClient.get(`/api/audience/tone-profile?userId=${userId}`);
+      return res.data as {
+        profile: ToneProfile | null;
+        manualRepliesCount: number;
+        message: string;
+      };
+    },
+    enabled: !!userId,
+    staleTime: 5 * 60 * 1000,
   });
 
   // Mutation: Sync comments from YouTube API
@@ -298,6 +326,47 @@ export function useAudienceAnalysis(options: {
       queryClient.invalidateQueries({ queryKey: ["audience-comments"] });
     },
   });
+  // Mutation: Refresh Tone Profile (re-learn from past replies)
+  const refreshToneMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiClient.post("/api/audience/tone-profile/refresh", { userId });
+      return res.data as {
+        profile: ToneProfile | null;
+        manualRepliesCount: number;
+        message: string;
+      };
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(["audience-tone-profile", userId], data);
+    },
+  });
+
+  // Mutation: Update Tone Profile (customize voice parameters)
+  const updateToneMutation = useMutation({
+    mutationFn: async (updates: Partial<ToneProfile>) => {
+      const res = await apiClient.put("/api/audience/tone-profile", { userId, ...updates });
+      return res.data as { profile: ToneProfile; message: string };
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(["audience-tone-profile", userId], (prev: any) => ({
+        ...prev,
+        profile: data.profile,
+        message: data.message,
+      }));
+    },
+  });
+
+  // Mutation: Test Tone Profile comparison
+  const testToneMutation = useMutation({
+    mutationFn: async (params: { commentText?: string; authorName?: string }) => {
+      const res = await apiClient.post("/api/audience/tone-profile/test", { userId, ...params });
+      return res.data as {
+        genericReply: string;
+        personalizedReply: string;
+        profile: ToneProfile | null;
+      };
+    },
+  });
 
   return {
     videos: videosQuery.data || [],
@@ -305,7 +374,11 @@ export function useAudienceAnalysis(options: {
     stats: commentsQuery.data?.stats || null,
     analysis: analysisQuery.data?.analysis || null,
     replySettings: replySettingsQuery.data || null,
+    toneProfile: toneProfileQuery.data?.profile || null,
+    manualRepliesCount: toneProfileQuery.data?.manualRepliesCount ?? 0,
+    toneMessage: toneProfileQuery.data?.message || "",
     isLoading: commentsQuery.isLoading || analysisQuery.isLoading,
+    isLoadingToneProfile: toneProfileQuery.isLoading,
     isSyncing: syncMutation.isPending,
     isAnalyzing: reanalyzeMutation.isPending,
     isGeneratingReply: generateReplyMutation.isPending,
@@ -314,6 +387,9 @@ export function useAudienceAnalysis(options: {
     isAutoReplying: autoReplyMutation.isPending,
     isDeletingReply: deleteReplyMutation.isPending,
     isEditingReply: editReplyMutation.isPending,
+    isRefreshingTone: refreshToneMutation.isPending,
+    isUpdatingTone: updateToneMutation.isPending,
+    isTestingTone: testToneMutation.isPending,
     syncComments: syncMutation.mutateAsync,
     reanalyze: reanalyzeMutation.mutateAsync,
     generateReply: generateReplyMutation.mutateAsync,
@@ -322,10 +398,14 @@ export function useAudienceAnalysis(options: {
     runAutoReply: autoReplyMutation.mutateAsync,
     deleteReply: deleteReplyMutation.mutateAsync,
     editReply: editReplyMutation.mutateAsync,
+    refreshToneProfile: refreshToneMutation.mutateAsync,
+    updateToneProfile: updateToneMutation.mutateAsync,
+    testToneReply: testToneMutation.mutateAsync,
     refetch: () => {
       videosQuery.refetch();
       commentsQuery.refetch();
       analysisQuery.refetch();
+      toneProfileQuery.refetch();
     },
   };
 }

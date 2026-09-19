@@ -182,6 +182,78 @@ function ThumbnailPlaceholder({ fileName, className = "" }: { fileName: string; 
   );
 }
 
+// ─── Smart Thumbnail Resolver ──────────────────────────────────────────────────
+
+export function resolveAutopilotThumbnail(item: QueueItem): string {
+  const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:3001";
+
+  // 1. If custom thumbnail exists
+  if (item.customThumbnailPath) {
+    if (item.customThumbnailPath.startsWith("http://") || item.customThumbnailPath.startsWith("https://") || item.customThumbnailPath.startsWith("data:")) {
+      return item.customThumbnailPath;
+    }
+    const filename = item.customThumbnailPath.split(/[/\\]/).pop();
+    if (filename) {
+      return `${apiUrl}/api/autopilot/thumbnails/${filename}`;
+    }
+  }
+
+  // 2. If thumbnailPath is an external URL (YouTube / CDN / Unsplash / Data URL)
+  if (item.thumbnailPath && (item.thumbnailPath.startsWith("http://") || item.thumbnailPath.startsWith("https://") || item.thumbnailPath.startsWith("data:"))) {
+    return item.thumbnailPath;
+  }
+
+  // 3. If it has a platformVideoId from YouTube, use YouTube high-res thumbnail (fast & 100% available)
+  if (item.platformVideoId && !item.platformVideoId.startsWith("short_")) {
+    return `https://img.youtube.com/vi/${item.platformVideoId}/hqdefault.jpg`;
+  }
+
+  // 4. Local frame path
+  if (item.thumbnailPath) {
+    return `${apiUrl}/api/autopilot/frames/${item.thumbnailPath}`;
+  }
+
+  return "";
+}
+
+function AutopilotQueueThumbnail({ item, className = "" }: { item: QueueItem; className?: string }) {
+  const [useFallback, setUseFallback] = useState(false);
+  const [failedCompletely, setFailedCompletely] = useState(false);
+
+  const fallbackYtUrl = item.platformVideoId && !item.platformVideoId.startsWith("short_")
+    ? `https://img.youtube.com/vi/${item.platformVideoId}/hqdefault.jpg`
+    : null;
+
+  const primaryUrl = resolveAutopilotThumbnail(item);
+
+  let activeSrc: string | null = null;
+  if (!useFallback && primaryUrl) {
+    activeSrc = primaryUrl;
+  } else if (fallbackYtUrl && !failedCompletely) {
+    activeSrc = fallbackYtUrl;
+  }
+
+  if (!activeSrc || failedCompletely) {
+    return <ThumbnailPlaceholder fileName={item.fileName || item.title} className={className} />;
+  }
+
+  return (
+    <img
+      src={activeSrc}
+      alt={item.fileName || item.title}
+      onError={() => {
+        if (!useFallback && fallbackYtUrl && fallbackYtUrl !== primaryUrl) {
+          setUseFallback(true);
+        } else {
+          setFailedCompletely(true);
+        }
+      }}
+      className={`w-full h-full object-cover ${className}`}
+      loading="lazy"
+    />
+  );
+}
+
 // ─── Video Type Options ───────────────────────────────────────────────────────
 
 const VIDEO_TYPES = [
@@ -211,9 +283,10 @@ function detectVideoType(categoryId: string): string {
 
 // ─── Edit Panel Component ─────────────────────────────────────────────────────
 
-function EditPanel({ item, onSave, onClose }: {
+function EditPanel({ item, onSave, onAiGenerate, onClose }: {
   item: QueueItem;
   onSave: (data: Record<string, unknown>) => void;
+  onAiGenerate?: () => Promise<any>;
   onClose: () => void;
 }) {
   const [title, setTitle] = useState(item.title || "");
@@ -229,11 +302,35 @@ function EditPanel({ item, onSave, onClose }: {
   const [customThumbnail, setCustomThumbnail] = useState<string | null>(null);
   const thumbInputRef = useRef<HTMLInputElement | null>(null);
   const [saving, setSaving] = useState(false);
+  const [isGeneratingAi, setIsGeneratingAi] = useState(false);
   const [activeSection, setActiveSection] = useState<"main" | "platforms">("main");
+  const [contentSummary, setContentSummary] = useState(item.aiContentSummary || "");
 
   const aiMeta = item.aiMetadata as Record<string, unknown> | null;
   const platformOpts = (aiMeta?.platformOptimizations || {}) as Record<string, Record<string, unknown>>;
   const selectedType = VIDEO_TYPES.find(t => t.value === videoType);
+
+  const handleAiAutoFill = async () => {
+    if (!onAiGenerate) return;
+    setIsGeneratingAi(true);
+    try {
+      const res = await onAiGenerate();
+      if (res && (res.metadata || res.item)) {
+        const meta = res.metadata || res.item.aiMetadata || res.item;
+        if (meta.title) setTitle(meta.title);
+        if (meta.description) setDescription(meta.description);
+        if (meta.tags && Array.isArray(meta.tags)) setTags(meta.tags);
+        if (meta.contentSummary || res.item?.aiContentSummary) {
+          setContentSummary(meta.contentSummary || res.item?.aiContentSummary);
+        }
+        toast.success("✨ Studio AI generated optimized metadata in 2 seconds!");
+      }
+    } catch (err: any) {
+      toast.error(err?.message || "AI generation failed");
+    } finally {
+      setIsGeneratingAi(false);
+    }
+  };
 
   const handleThumbSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -305,7 +402,27 @@ function EditPanel({ item, onSave, onClose }: {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {item.aiContentSummary && (
+            {onAiGenerate && (
+              <button
+                type="button"
+                onClick={handleAiAutoFill}
+                disabled={isGeneratingAi}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-pink-500 hover:from-purple-500 hover:to-pink-400 text-xs font-bold text-white shadow-md shadow-purple-900/30 transition disabled:opacity-50"
+              >
+                {isGeneratingAi ? (
+                  <>
+                    <Loader2 size={13} className="animate-spin" />
+                    <span>AI Analyzing...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles size={13} className="text-yellow-300" />
+                    <span>Auto-Generate with AI</span>
+                  </>
+                )}
+              </button>
+            )}
+            {contentSummary && (
               <span className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-purple-500/10 border border-purple-500/20 text-[9px] text-purple-400 font-medium">
                 <Sparkles size={9} /> AI Generated
               </span>
@@ -355,10 +472,8 @@ function EditPanel({ item, onSave, onClose }: {
                   <div className="w-28 sm:w-36 h-20 rounded-lg overflow-hidden bg-black/40 relative shrink-0 border border-white/10 group/editthumb">
                     {customThumbnail ? (
                       <img src={customThumbnail} alt="Custom Thumbnail" className="w-full h-full object-cover" />
-                    ) : item.thumbnailPath ? (
-                      <img src={`${import.meta.env.VITE_API_URL || "http://localhost:3001"}/api/autopilot/frames/${item.thumbnailPath}`} alt={item.fileName} className="w-full h-full object-cover" />
                     ) : (
-                      <ThumbnailPlaceholder fileName={item.fileName} className="w-full h-full" />
+                      <AutopilotQueueThumbnail item={item} className="w-full h-full" />
                     )}
                     <div className="absolute inset-0 bg-black/50 opacity-0 group-hover/editthumb:opacity-100 transition flex items-center justify-center">
                       <button
@@ -822,7 +937,8 @@ export default function AutopilotPage() {
   const {
     queue, stats, settings, notifications, unreadCount, behaviorProfile,
     isLoading, isUploading, uploadProgress, isGeneratingMetadata,
-    bulkUpload, generateMetadata, updateItem, cancelItem, deleteItem, clearQueue,
+    bulkUpload, generateMetadata, generateItemMetadata, isGeneratingItemMetadata,
+    updateItem, cancelItem, deleteItem, clearQueue,
     publishNow, pause, resume, updateSettings, markNotificationsRead, refresh
   } = useAutopilot();
 
@@ -1332,11 +1448,7 @@ export default function AutopilotPage() {
                       <div className="flex items-stretch">
                         {/* Thumbnail */}
                         <div className="w-[120px] sm:w-[160px] shrink-0 relative bg-black/20 overflow-hidden">
-                          {item.thumbnailPath ? (
-                            <img src={`${import.meta.env.VITE_API_URL || "http://localhost:3001"}/api/autopilot/frames/${item.thumbnailPath}`} alt={item.fileName} className="w-full h-full object-cover" />
-                          ) : (
-                            <ThumbnailPlaceholder fileName={item.fileName} className="w-full h-full min-h-[90px]" />
-                          )}
+                          <AutopilotQueueThumbnail item={item} className="w-full h-full min-h-[90px]" />
                           {/* Platform Badges Overlay */}
                           <div className="absolute top-2 left-2 flex flex-col gap-1">
                             {(item.platforms && item.platforms.length > 0 ? item.platforms : [item.platform]).map(p => (
@@ -1770,6 +1882,9 @@ export default function AutopilotPage() {
         {editingItem && (
           <EditPanel
             item={editingItem}
+            onAiGenerate={async () => {
+              return await generateItemMetadata({ itemId: editingItem.id });
+            }}
             onSave={async (data) => {
               try {
                 await updateItem({ itemId: editingItem.id, data });

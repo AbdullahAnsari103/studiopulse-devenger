@@ -73,6 +73,9 @@ export async function analyzeSentimentBatch(
     try {
       const response = await callGemini(
         `You are a sentiment analysis engine. Classify each numbered comment as exactly one of: positive, negative, neutral, or mixed.
+IMPORTANT RULES:
+1. Many comments may be in "Hinglish" (Hindi written in English alphabet). Understand Hinglish accurately before classifying.
+2. DO NOT rely solely on emojis. Users often use laughing emojis (🤣, 🤪) sarcastically or to mock the creator. If the text is mocking or negative, classify it as "negative" regardless of playful emojis.
 Return ONLY a JSON array of objects like: [{"idx": 1, "s": "positive"}, {"idx": 2, "s": "negative"}, ...]
 Do NOT include any text outside the JSON array.`,
         `Classify these ${batch.length} YouTube comments:\n\n${numbered}`

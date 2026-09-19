@@ -53,6 +53,12 @@ export interface YouTubeCategory {
   name: string;
 }
 
+export interface VideoChapter {
+  time: string;
+  seconds: number;
+  title: string;
+}
+
 export interface AiOptimization {
   optimizedTitle: string;
   optimizedDescription: string;
@@ -70,6 +76,8 @@ export interface AiOptimization {
   bestUploadTime?: string;
   titleAlternatives?: string[];
   videoContentSummary?: string;
+  chapters?: VideoChapter[];
+  chaptersFormatted?: string;
   platformOptimizations?: {
     youtube?: {
       title: string;
@@ -88,6 +96,19 @@ export interface AiOptimization {
       post: string;
       hashtags: string[];
     };
+  } | null;
+  audioIntelligence?: {
+    hasAudio: boolean;
+    transcript?: string | null;
+    musicDescription?: string | null;
+    hasVocals?: boolean;
+    hasSpeech?: boolean;
+    isMusic?: boolean;
+    detectedLanguage?: string | null;
+    contentType?: string | null;
+    durationAnalyzed?: number;
+    genre?: string | null;
+    mood?: string | null;
   } | null;
 }
 
@@ -263,10 +284,11 @@ export function useUpload() {
       tags?: string[];
       category?: string;
       uploadId?: string;
-      videoFrames?: { base64: string; mimeType: string }[];
+      videoFrames?: { base64: string; mimeType: string; timeSeconds?: number; timestamp?: string }[];
+      videoDuration?: number;
     }
   >({
-    mutationFn: async ({ title, description, tags, category, uploadId, videoFrames }) => {
+    mutationFn: async ({ title, description, tags, category, uploadId, videoFrames, videoDuration }) => {
       const res = await apiClient.post("/api/upload/ai-optimize", {
         userId: user?.id,
         title,
@@ -275,6 +297,7 @@ export function useUpload() {
         category,
         uploadId,
         videoFrames,
+        videoDuration,
       });
       return res.data;
     },

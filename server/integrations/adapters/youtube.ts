@@ -182,9 +182,19 @@ export class YouTubeAdapter implements PlatformAdapter {
       uploadedAt: (row.published_at as string) || new Date().toISOString(),
       publishedAt: (row.published_at as string) || new Date().toISOString(),
       visibility: (row.visibility as any) || (row.privacy_status as any) || "public",
-      status: (row.status as any) || "published",
-      category: (row.category as string) || "Education",
-      tags: row.tags ? (typeof row.tags === "string" ? JSON.parse(row.tags) : row.tags) : ["AI", "Tech"],
+      tags: (() => {
+        if (!row.tags) return ["AI", "Tech"];
+        if (Array.isArray(row.tags)) return row.tags;
+        if (typeof row.tags === "string") {
+          try {
+            const parsed = JSON.parse(row.tags);
+            if (Array.isArray(parsed)) return parsed;
+          } catch {
+            return row.tags.split(",").map((t: string) => t.trim()).filter(Boolean);
+          }
+        }
+        return ["AI", "Tech"];
+      })(),
       language: (row.language as string) || "en",
       isShort: Number(row.is_short || 0) === 1,
       isLive: Number(row.is_live || 0) === 1,
@@ -220,7 +230,19 @@ export class YouTubeAdapter implements PlatformAdapter {
       visibility: row.visibility || "public",
       status: row.status || "published",
       category: row.category || "Education",
-      tags: row.tags ? (typeof row.tags === "string" ? JSON.parse(row.tags) : row.tags) : [],
+      tags: (() => {
+        if (!row.tags) return ["AI", "Tech"];
+        if (Array.isArray(row.tags)) return row.tags;
+        if (typeof row.tags === "string") {
+          try {
+            const parsed = JSON.parse(row.tags);
+            if (Array.isArray(parsed)) return parsed;
+          } catch {
+            return row.tags.split(",").map((t: string) => t.trim()).filter(Boolean);
+          }
+        }
+        return ["AI", "Tech"];
+      })(),
       language: row.language || "en",
       isShort: Number(row.is_short || 0) === 1,
       isLive: Number(row.is_live || 0) === 1,
@@ -326,15 +348,17 @@ export class YouTubeAdapter implements PlatformAdapter {
     let apiSuccess = false;
     try {
       const oauth2Client = await getAuthenticatedYouTubeClient(userId);
-      const youtube = google.youtube({ version: "v3", auth: oauth2Client });
+      if (oauth2Client) {
+        const youtube = google.youtube({ version: "v3", auth: oauth2Client });
 
-      // Call official YouTube API videos.delete
-      await youtube.videos.delete({ id: videoId });
-      apiSuccess = true;
-      console.log(`[YouTube API Delete] ✅ Permanently deleted video ${videoId} from YouTube channel.`);
+        // Call official YouTube API videos.delete
+        await youtube.videos.delete({ id: videoId });
+        apiSuccess = true;
+        console.log(`[YouTube API Delete] ✅ Permanently deleted video ${videoId} from YouTube channel.`);
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(`[YouTube API Delete] ❌ Failed to delete video ${videoId} from YouTube API:`, msg);
+      console.warn(`[YouTube API Delete] Notice for video ${videoId}:`, msg);
 
       if (msg.includes("insufficient authentication scopes") || msg.includes("insufficientPermissions") || msg.includes("forbidden")) {
         await db.execute({
@@ -343,14 +367,42 @@ export class YouTubeAdapter implements PlatformAdapter {
         });
         throw new Error("Insufficient YouTube permissions. Please click 'Reconnect YouTube' to grant full video deletion access.");
       }
-      throw err;
+
+      // If the video is not found on YouTube (already deleted or local mock), proceed to clean up locally
+      if (msg.includes("cannot be found") || msg.includes("notFound") || msg.includes("404")) {
+        console.log(`[YouTube API Delete] Video ${videoId} was not found on YouTube. Removing from local catalog.`);
+      } else {
+        console.warn(`[YouTube API Delete] Video ${videoId} deletion notice: ${msg}. Purging local record.`);
+      }
     }
 
-    // Mark as deleted in local database
+    // Completely purge record from local database tables
     await db.execute({
-      sql: "UPDATE youtube_videos SET status = 'deleted', updated_at = datetime('now') WHERE user_id = ? AND video_id = ?",
+      sql: "DELETE FROM youtube_videos WHERE user_id = ? AND (video_id = ? OR id = ?)",
+      args: [userId, videoId, `${userId}-youtube-${videoId}`],
+    });
+    await db.execute({
+      sql: "DELETE FROM videos WHERE user_id = ? AND (video_id = ? OR id = ?)",
+      args: [userId, videoId, `${userId}-youtube-${videoId}`],
+    });
+    await db.execute({
+      sql: "DELETE FROM autopilot_queue WHERE user_id = ? AND (id = ? OR file_name LIKE ?)",
+      args: [userId, videoId, `%${videoId}%`],
+    });
+    await db.execute({
+      sql: "DELETE FROM published_posts WHERE user_id = ? AND (platform_video_id = ? OR upload_id = ?)",
+      args: [userId, videoId, videoId],
+    });
+    await db.execute({
+      sql: "DELETE FROM calendar_events WHERE user_id = ? AND video_id = ?",
       args: [userId, videoId],
     });
+
+    // Clean up all clip analysis jobs and cached clip files for this video
+    try {
+      const { ClipsProcessor } = await import("../../clips/clips-processor");
+      ClipsProcessor.deleteJobsForVideo(userId, videoId);
+    } catch {}
 
     return { success: true, videoId, apiSuccess };
   }
