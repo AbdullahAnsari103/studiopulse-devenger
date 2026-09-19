@@ -8,14 +8,14 @@
 [![Vite](https://img.shields.io/badge/Vite-8.0-646CFF?style=for-the-badge&logo=vite&logoColor=white)](https://vitejs.dev/)
 [![TailwindCSS](https://img.shields.io/badge/TailwindCSS-3.4-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white)](https://tailwindcss.com/)
 [![Express 5](https://img.shields.io/badge/Express-5.2-000000?style=for-the-badge&logo=express&logoColor=white)](https://expressjs.com/)
-[![Gemini 2.5 Flash](https://img.shields.io/badge/Google_Gemini-2.5_Flash-4285F4?style=for-the-badge&logo=google&logoColor=white)](https://ai.google.dev/)
-[![Groq](https://img.shields.io/badge/Groq-Llama_3.3_70B_&_Whisper-F55036?style=for-the-badge&logo=fastapi&logoColor=white)](https://groq.com/)
+[![Studio AI Multimodal](https://img.shields.io/badge/Studio_AI-Multimodal_Engine-8200DB?style=for-the-badge&logo=sparkles&logoColor=white)](#)
+[![Studio AI Speech](https://img.shields.io/badge/Studio_AI-Speech_Intelligence-FF6B00?style=for-the-badge)](#)
 [![Turso / LibSQL](https://img.shields.io/badge/Turso-LibSQL_Database-00E599?style=for-the-badge&logo=sqlite&logoColor=black)](https://turso.tech/)
 [![Clerk Auth](https://img.shields.io/badge/Clerk-Authentication-6C47FF?style=for-the-badge&logo=clerk&logoColor=white)](https://clerk.com/)
 [![FFmpeg](https://img.shields.io/badge/FFmpeg-fluent--ffmpeg-007808?style=for-the-badge&logo=ffmpeg&logoColor=white)](https://ffmpeg.org/)
 
 <p align="center">
-  <b>A unified multimodal operating system transforming raw footage into viral, multi-platform releases with ground-truth AI vision, audio intelligence, an in-browser multi-track editor, and automated social distribution.</b>
+  <b>A unified multimodal operating system transforming raw footage into viral, multi-platform releases with ground-truth Studio AI vision, audio intelligence, an in-browser multi-track editor, and automated social distribution.</b>
 </p>
 
 [The Problem](#-the-problem-why-creator-workflows-are-broken) • [The Solution](#-the-solution-studio-pulse) • [Architecture](#-simplified-system-architecture) • [Core Capabilities](#-core-capabilities) • [UI Showcase](#-ui-showcase) • [Tech Stack](#-technology-stack) • [Developer Reference](#-developer-reference)
@@ -33,19 +33,19 @@ Modern digital creators, podcasters, and media agencies face severe friction acr
 | **1. Hallucinated Timestamps** | Conventional AI tools generate YouTube chapters from text transcripts alone without visual frame context. | AI invents approximate, rounded timestamps (`1:00`, `2:00`) that drift seconds away from actual scene transitions, destroying video SEO and viewer navigation. |
 | **2. Short Repurposing Fatigue** | Converting a 45-minute horizontal video into 10 vertical (9:16) shorts takes 4–6 hours of manual clipping, re-centering speakers, and adding animated captions. | Creators post inconsistently on Shorts, Reels, and TikTok, sacrificing algorithmic reach and viral discovery. |
 | **3. Fragmented Tooling Sprawl** | Creators bounce between 4–6 siloed apps: desktop NLEs (Premiere/CapCut), separate transcription tools, AI script writers, thumbnail generators, and scheduling spreadsheets. | Disjointed workflows, slow turnaround times, high software subscription overhead, and endless file re-exporting. |
-| **4. AI Rate-Limit Chokepoints** | Multimodal video analysis (extracting dozens of frames, full audio transcription, script generation) quickly hits API rate limits (HTTP 429). | Creator workflows freeze mid-batch, causing rendering crashes and inconsistent production timelines. |
+| **4. AI Rate-Limit Chokepoints** | Heavy video analysis (extracting dozens of frames, full audio transcription, script generation) quickly exhausts single API limits. | Creator workflows freeze mid-batch, causing rendering crashes and inconsistent production timelines. |
 | **5. Audience Engagement Decay** | High-velocity channels receive hundreds of comments daily across multiple platforms that go unread or unreplied. | Low viewer retention, missed community signals, and lost recommendation boost from platform algorithms. |
 
 ---
 
 ## 🟢 The Solution: Studio Pulse
 
-**Studio Pulse** unites every phase of modern video production into a single, high-performance workspace:
+**Studio Pulse** unites every phase of modern video production into a single, high-performance workspace powered by **Studio AI**:
 
-1. **Ground-Truth Audiovisual Fusion**: Real-time canvas keyframe extraction synchronized with Whisper word-level timestamps enables Gemini 2.5 Flash to generate 100% accurate, hallucination-free YouTube chapters and summaries.
+1. **Ground-Truth Audiovisual Fusion**: Real-time canvas keyframe extraction synchronized with millisecond speech timestamps enables the **Studio AI Multimodal Engine** to generate 100% accurate, hallucination-free YouTube chapters and summaries.
 2. **Autonomous Viral Short Generation (Pulse Clips)**: Transforms long-form videos into 9:16 vertical shorts with automated speaker framing, virality scoring (0–100), and kinetic word-by-word animated subtitles.
-3. **In-Browser Multi-Track Editor**: A full-featured non-linear editor with multi-track timeline, precision trimming, Zundo undo/redo history, natural language AI editing commands, and server-side FFmpeg rendering.
-4. **Resilient Multi-Key Balancing**: Intelligent round-robin pooling across up to 10 Gemini and 10 Groq keys with automatic 429 rate-limit backoff, ensuring 99.9% uptime under heavy production loads.
+3. **In-Browser Multi-Track Editor**: A full-featured non-linear editor with multi-track timeline, precision trimming, Zundo undo/redo history, natural language Studio AI editing commands, and server-side FFmpeg rendering.
+4. **Resilient High-Throughput Studio AI Pools**: Intelligent round-robin key pooling with automatic 429 rate-limit backoff, ensuring 99.9% uptime under heavy production loads.
 5. **Audience Sentiment Intelligence**: Ingests YouTube channel comments, charts audience emotional tone, and drafts high-converting, persona-aligned replies for instant 1-click publishing.
 
 ---
@@ -63,13 +63,13 @@ flowchart TD
     subgraph Gateway ["2. Backend Orchestrator (Express 5 + TypeScript)"]
         API["API Gateway & Clerk Auth Middleware"]
         Queue["Async Job Queue & Worker Pipeline"]
-        Balancer["Multi-Key Load Balancer & Failover Pool<br/>(10x Gemini + 10x Groq Rotation)"]
+        Balancer["Studio AI High-Throughput Load Balancer<br/>(Resilient Key Rotation & Failover)"]
     end
 
-    subgraph Intelligence ["3. Multimodal AI & Processing Engines"]
-        Gemini["Google Gemini 2.5 Flash<br/>(Vision + Multimodal Fusion)"]
-        Whisper["Groq Whisper Large-v3<br/>(Millisecond Speech Timestamps)"]
-        Llama["Groq Llama 3.3 70B<br/>(Intent Routing & Scripting)"]
+    subgraph Intelligence ["3. Studio AI & Media Processing Engines"]
+        StudioVision["Studio AI Vision Engine<br/>(Multimodal Video & Scene Perception)"]
+        StudioSpeech["Studio AI Speech Engine<br/>(Word-Level Audio Timestamps)"]
+        StudioReasoning["Studio AI Reasoning Core<br/>(Intent Routing & Script Synthesis)"]
         FFmpeg["FFmpeg Video Engine<br/>(9:16 Crop, Trimming, Subtitles, Render)"]
         Turso["Turso Database (LibSQL Edge Cloud)"]
     end
@@ -78,9 +78,9 @@ flowchart TD
     FrameCapture -->|Visual Keyframes| Balancer
     Gateway --> Queue
     Queue --> Balancer
-    Balancer --> Gemini
-    Balancer --> Whisper
-    Balancer --> Llama
+    Balancer --> StudioVision
+    Balancer --> StudioSpeech
+    Balancer --> StudioReasoning
     Queue --> FFmpeg
     Queue --> Turso
 ```
@@ -90,7 +90,7 @@ flowchart TD
 ## ⚡ Core Capabilities
 
 ### 1. 🎯 Ground-Truth Multimodal Auto-Chapters
-- **Audiovisual Verification**: Captures visual canvas frames every 2–3 seconds and aligns them with Whisper word-level audio timestamps.
+- **Audiovisual Verification**: Captures visual canvas frames every 2–3 seconds and aligns them with Studio AI word-level speech timestamps.
 - **Zero Hallucination**: Prevents arbitrary, rounded timestamps; each chapter boundary is verified against visual scene transitions and spoken milestones.
 - **YouTube 1-Click Sync**: Publishes video metadata, auto-chapters, optimized titles, and tags directly to YouTube Data API v3 with custom privacy settings (`public`, `unlisted`, `private`).
 
@@ -102,7 +102,7 @@ flowchart TD
 ### 3. 🎬 In-Browser Multi-Track Video Editor
 - **Multi-Track Timeline**: Independent tracks for Video, Audio, B-Roll, Subtitles, and Graphic Overlays.
 - **Precision Trimming & Splitting**: Scrubber playhead with magnetic snapping, ripple deletion, speed ramping (0.25x – 4x), and volume ducking.
-- **Natural Language AI Commands**: Issue conversational edits (*"cut pauses longer than 1s"*, *"add kinetic captions"*, *"fade out audio at the end"*).
+- **Natural Language Studio AI Commands**: Issue conversational edits (*"cut pauses longer than 1s"*, *"add kinetic captions"*, *"fade out audio at the end"*).
 - **Non-Destructive History**: Undo/Redo state powered by Zundo.
 - **Server FFmpeg Rendering**: Exports high-definition master files from browser timeline instructions.
 
@@ -115,9 +115,9 @@ flowchart TD
 - **Emotion Classification**: Categorizes audience sentiment into Joy, Hype, Frustration, Confusion, and Feedback.
 - **Persona-Aligned Auto-Replies**: Drafts contextual, high-engagement replies reflecting channel voice with 1-click posting.
 
-### 6. 🛡️ Resilient Multi-Key API Pooling
-- **Automated Round-Robin**: Supports up to 10 distinct API keys each for Gemini and Groq.
-- **Intelligent Fallback**: Detects HTTP 429 rate limits, cooling down throttled keys and hot-swapping instantly to an active key.
+### 6. 🛡️ Resilient Studio AI Pooling
+- **Automated Round-Robin**: High-throughput load balancing across Studio AI engine keys.
+- **Intelligent Fallback**: Proactively detects rate limits, cooling down throttled channels and hot-swapping instantly to an active key.
 
 ---
 
@@ -149,9 +149,9 @@ flowchart TD
 | **Backend Server** | `Express 5.2` + `TSX` | High-throughput runtime with modern Express 5 |
 | **Database** | `LibSQL / Turso Client` | Serverless, edge-ready distributed SQLite database |
 | **Authentication** | `Clerk React 5` | Enterprise authentication, social OAuth, and session tokens |
-| **Computer Vision AI** | `Google Gemini 2.5 Flash` | Multimodal frame processing, scene analysis, and auto-chapters |
-| **Speech Intelligence** | `Groq Whisper Large-v3` | Millisecond-level word timestamped transcription |
-| **LLM Reasoning** | `Groq Llama 3.3 70B Versatile` | Intent routing, title synthesis, viral hook extraction |
+| **Computer Vision AI** | `Studio AI Multimodal Vision` | Multimodal frame processing, scene analysis, and auto-chapters |
+| **Speech Intelligence** | `Studio AI Speech Intelligence` | Millisecond-level word timestamped transcription |
+| **LLM Reasoning** | `Studio AI Reasoning Core` | Intent routing, title synthesis, viral hook extraction |
 | **Media Processing** | `fluent-ffmpeg` + `ffmpeg-static` | Video transcoding, vertical crop, audio extraction, overlays |
 | **Image Processing** | `Sharp 0.35` | Thumbnail resize, keyframe compression, webp conversion |
 | **Analytics Charts** | `Recharts 3.8` | Real-time performance, sentiment distribution, and engagement curves |
@@ -189,7 +189,7 @@ studiopulse-devenger/
 └── server/                          # Backend API (Express 5 + TypeScript)
     ├── index.ts                     # Server entrypoint, middleware, static mounts
     ├── db.ts                        # Turso / LibSQL client and schema migrations
-    ├── ai/                          # AI Engines (Gemini pool, Groq pool, Whisper, Research agent)
+    ├── ai/                          # Studio AI Engines (Vision, speech, reasoning, research agent)
     ├── audience/                    # Sentiment and tone analyzers
     ├── autopilot/                   # Scheduling engine and background workers
     ├── clips/                       # Short video renderer and publisher adapters
@@ -215,7 +215,7 @@ studiopulse-devenger/
 The codebase includes a fully documented, sanitized [`.env.example`](.env.example) template covering all service integrations:
 - **Authentication**: Clerk Publishable & Secret Keys
 - **Database**: Turso Cloud Database URL & Auth Token (or local SQLite fallback)
-- **AI Key Pools**: Multi-key rotation arrays for Google Gemini (up to 10 keys) and Groq (up to 10 keys)
+- **Studio AI Engine Keys**: High-throughput multi-key rotation arrays for Studio AI processing pipelines
 - **YouTube API**: Google Cloud OAuth Client ID, Secret, and Redirect URI
 - **Meta / Instagram**: Graph API Application ID & Secret
 
