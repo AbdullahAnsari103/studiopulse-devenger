@@ -18,7 +18,7 @@
   <b>A unified multimodal operating system transforming raw footage into viral, multi-platform releases with ground-truth Studio AI vision, audio intelligence, an in-browser multi-track editor, and automated social distribution.</b>
 </p>
 
-[The Problem](#-the-problem-why-creator-workflows-are-broken) • [The Solution](#-the-solution-studio-pulse) • [Architecture](#-simplified-system-architecture) • [Core Capabilities](#-core-capabilities) • [UI Showcase](#-ui-showcase) • [Tech Stack](#-technology-stack) • [Developer Reference](#-developer-reference)
+[The Problem](#-the-problem-why-creator-workflows-are-broken) • [The Solution](#-the-solution-studio-pulse) • [Architecture](#-simplified-system-architecture) • [Core Capabilities](#-core-capabilities) • [UI Showcase](#-ui-showcase) • [Tech Stack](#-technology-stack) • [Integrations](#-integrations--environment)
 
 ---
 
@@ -237,19 +237,8 @@ studiopulse-devenger/
 
 ---
 
-## ⚙️ Developer Reference
+## 🔐 Integrations & Environment
 
-### Execution Scripts
-
-| Command | Description |
-| :--- | :--- |
-| `npm run dev` | Starts Vite frontend dev server with HMR on `http://localhost:5173` |
-| `npm run server:dev` | Starts Express backend with `tsx watch` for auto-reload on `http://localhost:3001` |
-| `npm run build` | Compiles TypeScript (`tsc -b`) and bundles production assets with Vite |
-| `npm run lint` | Runs ESLint across the codebase |
-| `npm run preview` | Serves the production build locally for verification |
-
-### Environment Configuration Overview
 The codebase includes a fully documented, sanitized [`.env.example`](.env.example) template covering all service integrations:
 - **Authentication**: Clerk Publishable & Secret Keys
 - **Database**: Turso Cloud Database URL & Auth Token (or local SQLite fallback)
