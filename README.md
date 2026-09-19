@@ -257,16 +257,6 @@ The codebase includes a fully documented, sanitized [`.env.example`](.env.exampl
 - **YouTube API**: Google Cloud OAuth Client ID, Secret, and Redirect URI
 - **Meta / Instagram**: Graph API Application ID & Secret
 
----
-
-## 🛡️ Security & Privacy Assurance
-
-- **Zero Secrets in Repository**: Automated scanning validates zero hardcoded credentials. All secret keys are excluded via `.gitignore`.
-- **Encrypted Token Storage**: External platform OAuth tokens (YouTube access & refresh tokens) are encrypted with `crypto-js` before persisting to database storage.
-- **Sandboxed File Processing**: All user uploads and intermediate render files are strictly processed within isolated directories.
-
----
-
 <div align="center">
   <b>Built with ❤️ for Creators worldwide by <a href="https://github.com/AbdullahAnsari103">Abdullah Ansari</a></b>
 </div>
