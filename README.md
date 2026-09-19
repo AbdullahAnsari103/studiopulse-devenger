@@ -121,17 +121,55 @@ flowchart TD
 
 ---
 
-## 📸 UI Showcase
+## 📸 Live Application Showcase (Connected YouTube Channel)
 
-| In-Browser Video Editor | Pulse Clips Viral Studio |
-| :---: | :---: |
-| ![Video Editor](public/editor.png) | ![Viral Clips](public/clipgen.png) |
-| *Multi-track timeline with precision playhead, trimming, splitting, and AI command bar* | *Automated short-form vertical generation with kinetic subtitles and virality score* |
+The following screenshots demonstrate Studio Pulse actively synchronized with a live YouTube creator channel (`Unspokenframes`), showcasing end-to-end data synchronization, multimodal intelligence, and automated video workflows:
 
-| AI Multimodal Agent & Cosmic Research | Clip Generation Pipeline |
-| :---: | :---: |
-| ![Cosmic Mode](public/web.png) | ![Clips Pipeline](public/clipafter.png) |
-| *Deep web search synthesis with source inspection, temporal anchoring, and creator coaching* | *Real-time rendering status for high-definition 9:16 short exports* |
+### 1. 📊 Creator Analytics & Channel Dashboard
+Real-time ingestion of live YouTube channel analytics showing 30-day views (8.0K views), watch time (23.3h), subscriber growth, engagement curves, and historical performance trajectory:
+<div align="center">
+  <img src="public/dashboard-connected.png" alt="Creator Analytics Dashboard" width="100%" />
+</div>
+
+<br/>
+
+### 2. 🎬 Upload & Publishing Center v2.0
+High-speed chunked upload pipeline with automated Studio AI ground-truth chapters, SEO title generator, hashtag optimization, custom thumbnail selection, and 1-click YouTube playlist sync:
+<div align="center">
+  <img src="public/upload-center.png" alt="Upload & Publishing Center" width="100%" />
+</div>
+
+<br/>
+
+### 3. ✂️ AI Viral Clips Studio (Pulse AI)
+Automated 3-step short-form studio with imported videos directly from the connected YouTube channel. Features AI hook detection, smart 9:16 vertical re-framing, virality scoring (0–100), and kinetic subtitles:
+<div align="center">
+  <img src="public/viral-clips-studio.png" alt="AI Viral Clips Studio" width="100%" />
+</div>
+
+<br/>
+
+### 4. 🧠 Studio AI Cosmic Agent (Normal & Deep Web Mode)
+Autonomous creator copilot featuring normal conversation and deep web research mode with live source verification, fact checking, and executive dossier synthesis:
+<div align="center">
+  <img src="public/studio-ai-agent.png" alt="Studio AI Cosmic Agent" width="100%" />
+</div>
+
+<br/>
+
+### 5. 💬 "Your Audience" Sentiment Intelligence
+Live YouTube comment ingestion with emotional tone radar, positive/critical sentiment classification (86% positive), mood indicators, and 1-click persona-aligned auto-reply coverage:
+<div align="center">
+  <img src="public/audience-intelligence.png" alt="Your Audience Sentiment Intelligence" width="100%" />
+</div>
+
+<br/>
+
+### 6. 🎛️ In-Browser Multi-Track Video Editor
+Full-featured non-linear timeline editor with layered tracks for video, audio, captions, b-roll, precision playhead scrubbing, and natural language Studio AI command execution:
+<div align="center">
+  <img src="public/editor.png" alt="In-Browser Multi-Track Editor" width="100%" />
+</div>
 
 ---
 
